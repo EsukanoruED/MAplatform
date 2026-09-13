@@ -1,261 +1,215 @@
 # Medical Alliance — Design System
+
 **التحالف الطبي**
 
-A brand and interface system for Medical Alliance, a healthcare services and medical consultancy
-company. Built from the logo package supplied by the client; everything above the logo — colour ramps,
-type scale, spacing, components, screens — is derived from that artwork and the company description.
+A front-end design system and browser-based UI prototype kit for Medical Alliance, a healthcare and occupational-health services company. The project ships as a set of design tokens, a 22-component React library, and two click-through prototypes (a corporate website and an internal occupational-health portal) that consume that library. There is no build tool, backend, or package manager involved — everything runs directly in the browser from static files.
 
----
+## Overview
 
-## 1. Company context
+Medical Alliance provides medical consultations, occupational health programmes, facility equipping and management, training and conferences, medical equipment and supplies, and remote-site medical cover (on-site clinics, emergency response, and fitness-for-work assessment for industrial and remote operations). This is reflected throughout the prototype copy, which is written for two audiences: prospective clients evaluating the company's services (hospital and clinic operators, corporate HSE/HR leads, industrial site managers) and Medical Alliance's own clinical staff managing worker health records.
 
-Medical Alliance delivers medical, occupational health and healthcare management services to
-individuals, employers and healthcare facilities. Six service lines run through everything in this system,
-and they are the vocabulary the interface should speak in:
+The project is not a deployed website or product. It is a design system — brand tokens plus a component library — together with two **UI kit prototypes** that demonstrate how that system looks when applied to a public marketing site and an internal clinical portal. Both kits are static, click-through mockups: they render real layouts and interactions in the browser, but they are not wired to any backend, and their content and behaviour are illustrative rather than production data.
 
-1. **Medical and health consultations** — clinical advice for individuals, employers and operators.
-2. **Training and consultancy** — courses in medicine, public and private health, occupational health.
-3. **Facility equipping and management** — hospitals and medical centres of all types.
-4. **Forums and conferences** — organisation, delivery and supervision of medical events.
-5. **Medical equipment and supplies** — procurement and supply of equipment, consumables, medication.
-6. **Medical checkups and fitness assessments** — examinations and medical fitness certificates.
+## Features
 
-Plus the operational speciality the brand is most distinctive for: **remote-site doctor services** —
-first aid and emergency stabilisation, site clinic operation and stock control, fitness-for-work
-assessment, and occupational health input into site safety.
+Implemented in the current codebase:
 
-**Audiences:** hospital and clinic operators, corporate HSE and HR leaders, industrial and remote-site
-operations managers, and healthcare professionals attending training. The system must read as credible
-in a hospital corridor, a corporate boardroom, and a site office — and reproduce cleanly on print,
-digital, uniforms, vehicle liveries and equipment labels.
+- **Design token system** — CSS custom properties for colour, typography, spacing, radius, elevation, and motion, loaded through a single `styles.css` entry point (`tokens/*.css`).
+- **22-component React library**, exposed as a single global namespace (`window.MedicalAllianceDesignSystem_32f8e4`), covering buttons, cards, badges, form fields, feedback (alerts, toasts, tooltips, progress meters), navigation (tabs, breadcrumbs), data display (stat tiles, data tables), and an overlay modal.
+- **Two click-through UI kits** built entirely from that component library: a four-screen corporate website and a four-screen occupational-health portal, each with its own shared header/sidebar chrome and in-memory, state-based view switching (no router or URL routing).
+- **Client-side interactive states** — a contact form that shows a success toast on submit (no network request is made), a portal sign-in screen that accepts any submitted credentials (no real authentication), and a certificate-issuance flow with a confirmation modal and toast.
+- **Icon system** built on the Lucide icon set (loaded from a CDN), wrapped by a single `Icon` component so icons are used consistently and marked decorative (`aria-hidden`) unless a `title` is supplied.
+- **Bilingual provisioning, not a full translation** — an Arabic font token (`--font-arabic`, IBM Plex Sans Arabic) and logical CSS properties (e.g. `insetInlineEnd`) are used throughout, and the site header includes an Arabic language toggle and the footer an Arabic copyright line, but no fully translated or mirrored RTL page exists.
+- **Logo/asset system** — approved logo lockups (horizontal/stacked × crescent/S mark × dark/white) as SVG, plus cropped mark PNGs, served through a single `Logo` component that always renders the supplied artwork rather than redrawing it.
+- **Photography placeholder** — a dashed-border `PhotoSlot` component marks where client photography belongs; no stock or generated imagery is used in its place.
+- **Reduced-motion support** — all transition durations collapse to `1ms` under `prefers-reduced-motion: reduce`.
 
-### Sources given
-| Source | Path | Notes |
+## Pages / Screens
+
+The project has no single page list — it has two independent UI kits, each a small set of client-rendered screens with no backend and no persisted data.
+
+### Corporate website kit (`ui_kits/website/`)
+
+| Screen | File | Purpose |
 |---|---|---|
-| Logo package (8 SVGs) | `uploads/medical_alliance_logos_svg/` | Horizontal + stacked lockups × crescent/S marks × dark/white tones. Copied to `assets/logo/`. |
-| Logo master | `uploads/التحالف الطبي_logo.pdf` | Vector master, retained at `assets/logo/source/medical-alliance-logo.pdf`. |
-| Company description | Brief (chat) | Reproduced above; the source of all service-line copy in this system. |
+| Home | `HomeScreen.jsx` | Hero introduction with headline stats bar, a six-service grid, a remote-site medical highlight band, and a closing call-to-action |
+| Services | `ServicesScreen.jsx` | Tabbed detail view across the six service lines (consultations, occupational health, training, facility equipping, events, supplies), each with descriptive points and a coverage card |
+| Remote sites | `RemoteSiteScreen.jsx` | Explains remote-site medical cover: a stats hero, a four-step engagement process, a live site-register table, and readiness progress meters |
+| Contact | `ContactScreen.jsx` | Two-column enquiry form (name, organisation, email, phone, service needed, headcount, site details) with a client-side success toast, plus an emergency-contact card and office details |
+| Shared chrome | `SiteChrome.jsx` | Sticky header with navigation, language toggle and CTA button; footer with link columns; shared `Page`, `Container` and `PhotoSlot` layout helpers |
 
-**No product, website, Figma file, codebase or deck was supplied.** There is therefore no existing UI to
-recreate. The component inventory is the standard set for a system of this scope, and the two UI kits are
-*brand application references* rather than recreations — each says so in its own README. If a live site
-or product design exists, it should replace those kits.
+### Occupational health portal kit (`ui_kits/portal/`)
 
----
-
-## 2. Content fundamentals
-
-**Voice: a senior clinician briefing a client.** Precise, unhurried, quietly authoritative. The brand earns
-trust by being specific, not by being warm.
-
-- **Person.** "We" for Medical Alliance; "you"/"your" for the client organisation. Never "I". Never
-  first-person plural boasting — "We are the leading…" is out; "We place clinicians on site within
-  21 days" is in.
-- **Casing.** Sentence case everywhere: headings, buttons, labels, table headers excepted (those are
-  uppercase micro-labels via `--type-eyebrow`). No Title Case. No ALL CAPS except eyebrows.
-- **Length.** Headlines under 9 words. Lead paragraphs one or two sentences. Body paragraphs under
-  four lines at a 68ch measure. Button labels 2–4 words, verb first.
-- **Punctuation.** No exclamation marks. No em-dash drama in UI copy (fine in long-form prose).
-  Buttons and labels never end in a period; sentences in body copy always do.
-- **Numbers.** Always specific and always tabular: "1,284 workers cleared", "6-minute median response",
-  "valid to 14 Mar 2027". Dates in `DD Mon YYYY`. Never "many", "leading", "world-class".
-- **Clinical accuracy over marketing.** Say "fitness assessment", not "health check-up experience".
-  Say "in accordance with the applicable requirements", not "fully compliant".
-- **Emoji: never.** Not in product, not in marketing, not in internal tools. Status is carried by the
-  Badge dot and colour, never by a glyph from a different visual language.
-- **Arabic.** The company name is `التحالف الطبي`. In bilingual settings Arabic leads. Arabic copy is
-  never letterspaced and is set one optical step larger than its Latin counterpart (see the *Bilingual
-  lockup* card).
-
-**Specific examples**
-
-| Do | Don't |
-|---|---|
-| Medical cover, wherever the work is. | Your Trusted Healthcare Partner! |
-| Request a site assessment | Get Started |
-| Fit with restrictions | Conditionally Approved ⚠️ |
-| Enter a valid work email | Invalid input |
-| We reply within one working day. | We'll be in touch soon! |
-| 4 certificates expire in the next 30 days | Some certificates are expiring |
-
----
-
-## 3. Visual foundations
-
-### Colour
-The whole palette comes out of the mark. The crescents are **#801717** — `--ma-maroon-600`, the brand
-primary. The wordmark ink is **#2A0E0D** — `--ma-maroon-900`, which is also the body text colour: the
-system has no true black and no pure grey. Neutrals are warm, tinted toward the maroon, so a page of
-greys never drifts blue. Support hues (teal, green, amber, signal red) are a **system extension** used
-only for clinical status and system state — teal is never a second brand colour.
-
-Maximum two ground colours per view beyond white: one `--surface-page-alt` band and one maroon or ink
-block. Large maroon fields are used sparingly and deliberately — a closing CTA, a hero, a sidebar.
-
-### Typography
-- **Latin: Nunito Sans** — the closest Google Fonts match to the wordmark's geometric humanist letterforms
-  (see *Substitutions*). Display 800, headings 700→600, body 400, labels 600.
-- **Arabic: IBM Plex Sans Arabic**, 1.85 line height for body.
-- **Mono: IBM Plex Mono** — worker IDs, certificate references, token names. Anything that is an
-  identifier is set in mono.
-- Scale: 11 → 76px, roughly a major third at display sizes tightening to 1.125 in the body range.
-  Display sizes get `-0.015em`/`-0.03em` tracking; eyebrows get `+0.14em` and uppercase.
-- Measure: `--prose-max: 68ch`. Headings get `text-wrap: balance`, body gets `pretty`.
-
-### The one signature device
-A **28×3px maroon rule** beside an uppercase, wide-tracked eyebrow, above the heading. It appears on
-every marketing section and most panel headers (`SectionHeading`). It is the only decorative element
-in the system — there is no pattern library, no texture, no illustration style.
-
-### Backgrounds and imagery
-- **No gradients.** Flat fields only. The single exception is the logo artwork's own internal shading,
-  which is part of the supplied file and must not be recreated in CSS.
-- **No patterns or textures.** Where a hero needs presence, the crescent **mark** is placed at
-  **9–10% opacity**, oversized and bleeding off the right edge of an ink field. That is the only
-  approved graphic treatment.
-- **Photography** should be cool-neutral, documentary, and un-staged: real clinics, equipment, hands,
-  documentation, site environments. No stock smiles, no blue-tinted "tech medical" imagery, no
-  teal-and-orange grading. Full-bleed is allowed for a hero; elsewhere images sit in a 10px-radius frame.
-  **This system ships no photography** — `PhotoSlot` in the website kit is a dashed placeholder marking
-  where the client's own images belong. Do not substitute generated or stock-styled imagery.
-
-### Shape, borders, shadows
-- Radii are architectural and tight: 2 / 4 / 6 / 10 / 16px. Controls 4px, cards 10px, large surfaces 16px.
-  **Nothing is pill-shaped except the status Badge** — that shape is reserved so a chip always reads as a status.
-- Borders are hairlines: `--border-subtle` inside components, `--border-default` for control outlines,
-  `--border-strong` for inputs that need to be found. The 3px coloured edge appears in exactly two places:
-  the Alert leading bar and the Toast leading bar.
-- Shadows are warm (`rgba(23,21,20,…)`), never black, and used to signal elevation rather than decorate:
-  `xs` for a toggle knob, `md` for a raised card, `lg` for a hovered card, `xl` for a modal.
-- **Transparency and blur** are used twice only: the sticky site header (88% white + `--blur-scrim`) and
-  the modal scrim (56% ink + 2px blur). Nothing else is translucent.
-- Protection: on ink and maroon grounds the system switches tokens via the `.ma-ink` scope rather than
-  adding protection gradients or capsules behind text.
-
-### Motion
-One easing — `--ease-standard: cubic-bezier(.2,.8,.25,1)` — for everything. 140ms for control colour and
-focus, 200ms for surfaces and toggles, 280ms for scrims and meter fills. **Nothing bounces and nothing
-scales.** Hover lifts a card 2px; press drops a button 1px. Fades only for tooltips and toasts. All
-durations collapse to 1ms under `prefers-reduced-motion`.
-
-### States
-- **Hover:** buttons darken one ramp step (600 → 700); secondary buttons take a `--surface-sunken` fill;
-  ghost buttons take `--surface-brand-soft`; cards lift 2px and gain `--shadow-lg`; table rows tint to
-  `--surface-card-hover` **only when the row is clickable**.
-- **Press:** `translateY(1px)` plus one further ramp step (700 → 800). No scale, no ripple.
-- **Focus:** 3px maroon-500 glow at 28% (`--shadow-focus`) on fields; 2px `--focus-ring` outline with 2px
-  offset on everything else. Focus is never removed.
-- **Disabled:** 42% opacity plus `not-allowed`. Never grey-on-grey text.
-- **Selected:** maroon fill for checkbox/switch, 2px inset maroon underline for tabs, maroon left-fill for
-  the portal sidebar.
-
-### Layout
-- Marketing: `--content-max` 1240px, `--gutter-inline-lg` 56px, `--section-y` 96px between sections.
-- Product: `--sidebar-w` 264px fixed, `--topbar-h` 64px sticky, body padding `--space-8`, content capped
-  around 1180px so tables do not stretch.
-- Everything sits on the 4px grid. Component internals use 4–12px, card padding is 24px.
-- Fixed elements: the site header (sticky), the portal sidebar and top bar (fixed within a 100vh shell),
-  and toasts (bottom-inline-end, 24px inset).
-
----
-
-## 4. Iconography
-
-The supplied brand package contained **no icon set, no icon font and no sprite**. The system therefore
-standardises on **Lucide** (`https://unpkg.com/lucide@0.470.0/dist/umd/lucide.js`), loaded from CDN and
-wrapped by the `Icon` component. **This is a flagged substitution** — see below.
-
-- **Why Lucide:** 24px grid, 2px round-cap stroke, geometric construction. It sits with the mark's clean
-  arc geometry and with Nunito Sans' weight better than a filled or duotone set would.
-- **Style rules:** stroke only, never filled. 2px stroke at every size. Icons inherit `currentColor` —
-  usually `--text-brand` as a feature glyph, `--text-muted` in dense UI. Sizes: 16 inline with text,
-  18–20 in controls, 22–26 as a card glyph, 32–40 as a section glyph.
-- **Never:** two icon families on one screen; emoji as icons; Unicode dingbats as icons; hand-drawn SVG
-  approximations of an icon that exists in Lucide; an icon without an accessible label when it is the only
-  content of a control.
-- **Unicode is used in exactly three places**, deliberately, because they are typographic marks rather
-  than icons: `×` for dismiss affordances, `/` as the breadcrumb separator, `↑ ↓` for stat deltas.
-- **Core glyph set:** `stethoscope`, `heart-pulse`, `activity`, `siren`, `ambulance`, `shield-check`,
-  `clipboard-check`, `file-badge`, `hard-hat`, `building-2`, `map-pin`, `graduation-cap`, `users`,
-  `package`, `microscope`, `syringe`, `calendar-check`, `calendar-clock`, `phone-call`, `printer`,
-  `file-text`, `triangle-alert`.
-
-### Logo assets
-All logo files in `assets/logo/` are the client's own artwork, copied unmodified. `ma-mark-maroon.png`
-and `ma-mark-white.png` are mechanical crops of the supplied horizontal lockups, isolating the crescent
-symbol for favicon, uniform, livery and ground-graphic use. **Nothing in this system redraws or
-reconstructs the mark** — always place it through the `Logo` component or an `<img>` pointing at these files.
-
----
-
-## 5. Substitutions and gaps — please review
-
-1. **Fonts are substituted.** No font binaries were supplied. The wordmark's Latin letterforms are a
-   geometric humanist sans; **Nunito Sans** is the nearest Google Fonts match. The Arabic wordmark is a
-   modern geometric naskh; **IBM Plex Sans Arabic** is the nearest match. Neither is the real family.
-   *Please send the licensed font files (or the names) and `tokens/fonts.css` can be corrected in minutes.*
-2. **Icons are substituted.** Lucide stands in for a brand icon set that does not exist yet.
-3. **No photography.** `PhotoSlot` marks the gaps. Please supply real imagery.
-4. **Support hues are invented.** Teal / green / amber / signal red were derived to sit with the maroon;
-   they are not from a supplied palette. Confirm or replace.
-5. **No product source.** Both UI kits are brand applications, not recreations.
-6. **Arabic RTL is partial.** Tokens and `--font-arabic` are in place and components use logical
-   properties (`insetInlineEnd`, `marginInlineStart`), but no fully mirrored RTL screen is built.
-
----
-
-## 6. Index
-
-### Root
-| File | What it is |
-|---|---|
-| `styles.css` | Global entry point — `@import` lines only. Consumers link this one file. |
-| `readme.md` | This document. |
-| `SKILL.md` | Agent Skills front-matter wrapper, for use in Claude Code. |
-| `thumbnail.html` | Homepage tile for the design system. |
-
-### Tokens — `tokens/`
-`fonts.css` (webfont loading + substitution notice) · `colors.css` (maroon, neutral and support ramps,
-semantic text/surface/border aliases, the `.ma-ink` dark scope) · `typography.css` (families, weights,
-size ramp, line heights, tracking, composed `--type-*` roles) · `spacing.css` (4px scale + named layout
-rhythm) · `radius.css` · `elevation.css` · `motion.css` · `base.css` (element defaults).
-
-### Components — `components/`
-22 exports, all reachable as `window.MedicalAllianceDesignSystem_32f8e4.<Name>`. Each directory carries
-a `@dsCard` HTML showing its states, and every component has a `.d.ts` props contract and a
-`.prompt.md` usage note.
-
-| Group | Components |
-|---|---|
-| `components/core/` | **Button**, **IconButton**, **Logo**, **Card**, **Badge**, **Tag** |
-| `components/brand/` | **Icon**, **SectionHeading** |
-| `components/forms/` | **TextField**, **SelectField**, **Checkbox**, **Radio**, **Switch** |
-| `components/feedback/` | **Alert**, **Toast**, **Tooltip**, **ProgressMeter** |
-| `components/navigation/` | **Tabs**, **Breadcrumb** |
-| `components/data/` | **StatTile**, **DataTable** |
-| `components/overlay/` | **Modal** |
-
-**Intentional additions** (not implied by any supplied source, added because the system needs them):
-- **Icon** — a wrapper for the substituted Lucide set, so the swap to a real brand set is one file.
-- **Logo** — enforces the approved lockups and stops the mark being retyped or redrawn.
-- **SectionHeading** — encodes the eyebrow-rule device so it is consistent everywhere.
-
-### Foundation cards — `guidelines/`
-20 specimen cards, grouped **Colors** (brand ramp, warm neutrals, clinical status, text tokens, surfaces,
-approved pairings), **Type** (display, headings, body, utility roles, Arabic, bilingual lockup),
-**Spacing** (4px scale, layout frame, spacing in use), and **Brand** (lockups, grounds, mark and clear
-space, radius and elevation, motion).
-
-### UI kits — `ui_kits/`
-| Kit | Entry | Screens |
+| Screen | File | Purpose |
 |---|---|---|
-| Corporate website | `ui_kits/website/index.html` | Home, Services, Remote sites, Contact (+ shared chrome) |
-| Occupational health portal | `ui_kits/portal/index.html` | Sign-in, Dashboard, Worker record, Certificate register |
+| Sign-in | `LoginScreen.jsx` | Split-panel sign-in form, pre-filled with demo credentials; submitting the form signs in without checking credentials |
+| Dashboard | `DashboardScreen.jsx` | Expiry-alert banner, four stat tiles, a tabbed worker review-queue table, screening-coverage progress meters, and a daily clinic schedule |
+| Worker record | `WorkerScreen.jsx` | Tabbed worker profile (Overview / Examinations / Certificates / Clinical notes), a fitness-outcome radio group, an "issue certificate" modal with confirmation toast, and an attachments list |
+| Certificate register | `CertificatesScreen.jsx` | Certificate table with search/site/status filter controls and active-filter tags (the controls render but are not wired to filter the table rows), register-health progress meters, and notification toggles |
+| Shared chrome | `PortalChrome.jsx` | Fixed sidebar (Operations / Sites / Account sections) and a top bar with breadcrumb, search box and notification button |
 
-Each kit has its own README with provenance, flow and conventions.
+Three sidebar destinations in the portal (**Site clinics**, **Stock and equipment**, **Settings**) intentionally render a "left blank — no source design supplied" placeholder card rather than an invented screen.
 
-### Assets — `assets/logo/`
-`ma-horizontal-crescent-{dark,white}.svg` · `ma-horizontal-s-{dark,white}.svg` ·
-`ma-stacked-crescent-{dark,white}.svg` · `ma-stacked-s-{dark,white}.svg` ·
-`ma-mark-{maroon,white}.png` (crescent symbol, cropped from the lockups) ·
-`source/medical-alliance-logo.pdf` (vector master).
+## Technology Stack
+
+| Technology | How it's used |
+|---|---|
+| **React 18.3.1** | Loaded as a UMD build from `unpkg` via `<script>` tag — no npm install, no JSX build step configured in the project itself |
+| **Babel Standalone 7.29** | Loaded from `unpkg`; transpiles each screen's JSX in the browser at page load (`<script type="text/babel" src="…jsx">`) |
+| **Lucide 0.470.0** | Icon set, loaded as a UMD build from `unpkg`; wrapped by the `Icon` component, which looks glyphs up by name from `window.lucide` |
+| **Plain CSS custom properties** | All design tokens (colour, type, spacing, radius, elevation, motion) are CSS variables in `tokens/*.css` — no Sass/Less, no CSS-in-JS, no Tailwind |
+| **Google Fonts** | Nunito Sans, IBM Plex Sans Arabic and IBM Plex Mono are loaded via an `@import` in `tokens/fonts.css` |
+| **oxlint** | An oxlint ruleset (`_adherence.oxlintrc.json`, `react`/`import` plugins) is checked in at the project root. It flags raw HTML elements and direct imports from component folders, intended to keep consuming code going through the exported design-system components. No `package.json` script or CI step runs it. |
+
+There is **no package manager, no `package.json`, no bundler (Vite/webpack/etc.), and no TypeScript compiler** in this project. The `.d.ts` files next to each component are hand-written type declarations for editor/documentation purposes only — nothing in the project type-checks them. `_ds_bundle.js` is a pre-transpiled, pre-bundled build of every component (already run through Babel) that the UI kits load directly, alongside the individual `.jsx` sources used for the component "cards" and screens.
+
+## Project Structure
+
+```text
+MAplatform/
+├── styles.css                # Global CSS entry point — imports every token file
+├── readme.md                 # This document
+├── _ds_bundle.js             # Pre-built bundle exposing window.MedicalAllianceDesignSystem_32f8e4
+├── _ds_manifest.json         # Machine-readable manifest of components, tokens and guideline cards
+├── _adherence.oxlintrc.json  # oxlint rules enforcing component-only usage
+├── tokens/                   # Design tokens as CSS custom properties
+│   ├── fonts.css             # Webfont loading (Google Fonts) + substitution notice
+│   ├── colors.css            # Brand, neutral and status colour ramps; semantic aliases; dark (.ma-ink) scope
+│   ├── typography.css        # Font families, weights, size scale, line heights, composed type roles
+│   ├── spacing.css           # 4px spacing scale and named layout values
+│   ├── radius.css            # Corner-radius scale
+│   ├── elevation.css         # Shadow scale and focus rings
+│   ├── motion.css            # Easing curves and durations (incl. reduced-motion override)
+│   └── base.css              # Element-level defaults (headings, links, focus outline, selection colour)
+├── components/                # 22 React components grouped by category
+│   ├── core/                 # Button, IconButton, Logo, Card, Badge, Tag
+│   ├── brand/                 # Icon, SectionHeading
+│   ├── forms/                 # TextField, SelectField, Checkbox, Radio, Switch
+│   ├── feedback/               # Alert, Toast, Tooltip, ProgressMeter
+│   ├── navigation/             # Tabs, Breadcrumb
+│   ├── data/                   # StatTile, DataTable
+│   └── overlay/                 # Modal
+│       # each component folder has: Name.jsx (implementation), Name.d.ts (prop types),
+│       # Name.prompt.md (usage note), and a *.card.html demo page for the category
+├── guidelines/                 # 20 standalone HTML "specimen cards" documenting colour, type,
+│                               # spacing and brand usage (reference pages, not application code)
+├── ui_kits/
+│   ├── website/                # Corporate website click-through prototype (4 screens + shared chrome)
+│   └── portal/                 # Occupational-health portal click-through prototype (4 screens + shared chrome)
+└── assets/
+    └── logo/                    # Approved logo lockups (SVG/PNG) and the vector master source file
+```
+
+Not tracked in git (see `.gitignore`): `SKILL.md`, `thumbnail.html`, `.thumbnail`, `scraps/`, `uploads/`, and `assets/logo/source/` — these are generator-internal files, a duplicate copy of supplied assets, and a large source PDF kept outside version control.
+
+## Design System
+
+- **Colour** — a maroon brand ramp (`--ma-maroon-50` … `--ma-maroon-950`, primary `#801717`) and a warm-tinted neutral ramp, plus teal/green/amber/red status ramps for clinical states. Text, surface, border and focus colours are exposed as semantic aliases (`--text-primary`, `--surface-card`, `--border-subtle`, etc.), which are redefined under a `.ma-ink` class for dark grounds (headers, sidebars, hero sections).
+- **Typography** — Nunito Sans (Latin), IBM Plex Sans Arabic (Arabic), and IBM Plex Mono (identifiers), assembled into composed type roles (`--type-display-1`, `--type-heading-2`, `--type-body-sm`, `--type-eyebrow`, `--type-mono`, etc.) so components reference one token rather than separate size/weight/line-height values.
+- **Spacing** — a 4px base scale (`--space-1` … `--space-40`) plus named layout values (`--content-max: 1240px`, `--gutter-inline-lg: 56px`, `--section-y: 96px`, `--sidebar-w: 264px`, `--topbar-h: 64px`).
+- **Radius & elevation** — a fixed radius scale (2/4/6/10/16/24px, plus a pill radius reserved for status badges) and a four-step warm-toned shadow scale, with a separate focus-ring shadow token.
+- **Motion** — a single easing curve (`--ease-standard`) and a small set of durations, all collapsing to `1ms` under `prefers-reduced-motion: reduce`.
+- **Buttons** — five variants (`primary`, `secondary`, `ghost`, `ink`, `danger`) and three sizes, with hover/press/disabled states implemented via local component state (no CSS `:hover` rules).
+- **Cards, forms, navigation** — implemented as individual components (see below) that consume the same token set, so spacing, radius and colour stay consistent across the website and portal kits.
+
+## Components
+
+All 22 components are exported from a single bundle onto `window.MedicalAllianceDesignSystem_32f8e4`:
+
+| Component | Role |
+|---|---|
+| `Button` | Primary action control — 5 visual variants, 3 sizes, optional leading/trailing icon |
+| `IconButton` | Square, icon-only button built on `Button`, requires a `label` for its `aria-label`/`title` |
+| `Logo` | Renders the approved logo artwork (never redraws it) in horizontal, stacked or mark-only form |
+| `Card` | General-purpose surface container used throughout both kits |
+| `Badge` | Status chip (used with a `tone` and a `dot` alongside a text label, so status is never colour-only) |
+| `Tag` | Removable metadata chip (e.g. active filters) |
+| `Icon` | Wrapper around the Lucide icon set; decorative by default (`aria-hidden`), accessible when given a `title` |
+| `SectionHeading` | Eyebrow + rule + heading + lead paragraph pattern used to open marketing sections |
+| `TextField` | Labelled single-line or multi-line input with hint/error text and focus state |
+| `SelectField` | Labelled select control |
+| `Checkbox`, `Radio`, `Switch` | Labelled choice controls with optional descriptions |
+| `Alert` | Persistent, tone-coloured banner with an optional inline action |
+| `Toast` | Dismissible, ink-ground confirmation message |
+| `Tooltip` | Hover label |
+| `ProgressMeter` | Labelled progress/completion bar |
+| `Tabs` | Underlined tab bar, optionally showing a count per tab |
+| `Breadcrumb` | Slash-separated hierarchy trail |
+| `StatTile` | Labelled metric tile with an optional delta and icon |
+| `DataTable` | Hairline data table with per-column rendering, numeric alignment and a dense mode |
+| `Modal` | Centred dialog on a scrim, with header, body and right-aligned footer actions |
+
+## Responsive Design
+
+The two UI kits are built at a fixed design-review viewport (1280×760, per the `@dsCard` metadata in each kit's `index.html`) using fixed-column CSS grid layouts (e.g. a hard-coded 4-column stat grid, a 264px fixed sidebar). **No responsive breakpoints or media queries for layout are implemented** — the only `@media` rule in the entire token set is `prefers-reduced-motion`. The design tokens (spacing scale, content-max width, etc.) are structured in a way that could support a responsive pass, but no tablet or mobile layout currently exists.
+
+## Accessibility
+
+Implemented, verifiable in the code:
+
+- Form fields use real `<label htmlFor>` associations (`TextField`, `SelectField`, etc.).
+- `IconButton` requires a `label` prop, applied as both `aria-label` and `title`.
+- `Icon` renders decorative icons with `aria-hidden="true"` by default, and switches to `role="img"` with a visible `<title>` when one is supplied.
+- A visible focus style is defined globally (`:focus-visible { outline: 2px solid var(--focus-ring) }`) plus a focus glow on form fields.
+- All motion durations collapse to `1ms` under `prefers-reduced-motion: reduce`.
+- The `Logo` component always sets descriptive `alt` text (including the Arabic name).
+- Status is conveyed with a coloured dot **and** a text label together (`Badge tone="…" dot`), not colour alone.
+
+No accessibility audit or automated testing (axe, Lighthouse CI, etc.) is present in the project, and no specific WCAG conformance level is claimed.
+
+## Assets
+
+- **Logos** — `assets/logo/` contains the approved lockups as SVG (`ma-horizontal-crescent-{dark,white}.svg`, `ma-horizontal-s-{dark,white}.svg`, `ma-stacked-crescent-{dark,white}.svg`, `ma-stacked-s-{dark,white}.svg`) and two cropped mark-only PNGs (`ma-mark-{maroon,white}.png`), plus a vector master PDF under `assets/logo/source/` (excluded from git).
+- **Icons** — sourced at runtime from the Lucide CDN build; no local icon files are stored in the project.
+- **Fonts** — Nunito Sans, IBM Plex Sans Arabic and IBM Plex Mono are loaded from Google Fonts at runtime; no font files are bundled in the project.
+- **Photography** — none is included. The `PhotoSlot` component renders a dashed placeholder wherever a real photograph would go.
+
+## Installation
+
+There is no package manager or dependency list in this project. To run either UI kit locally:
+
+1. Clone or copy the `MAplatform` folder.
+2. Open `ui_kits/website/index.html` or `ui_kits/portal/index.html` directly in a browser (or serve the folder with any static file server).
+
+An internet connection is required on first load, since React, ReactDOM, Babel Standalone, Lucide and the Google Fonts are all pulled from CDNs at runtime rather than bundled locally.
+
+## Development
+
+There is no development server, build step, or npm script in this project — every file is static and interpreted directly by the browser.
+
+- To edit a screen or component, edit the relevant `.jsx` file directly; Babel Standalone re-transpiles it in the browser on the next page load.
+- Component "cards" (`components/*/*.card.html`) and guideline specimens (`guidelines/*.card.html`) can each be opened directly in a browser to preview a single component or foundation in isolation.
+- `_ds_manifest.json` lists every component, token and card the project currently defines, and `_ds_bundle.js` is a pre-built, already-transpiled copy of the component library used by the two UI kits.
+- An oxlint configuration (`_adherence.oxlintrc.json`) exists at the project root, but no script or CI job in the project currently runs it.
+
+## Build
+
+There is no build step. `_ds_bundle.js` is a pre-generated, pre-transpiled bundle of the component library checked into the repository; there is no build command in this project that regenerates it.
+
+## Deployment
+
+No deployment configuration (hosting config, CI/CD pipeline, Dockerfile, etc.) is included in this project.
+
+## Browser Support
+
+No explicit browser-support configuration (e.g. Browserslist) is present. The project depends on modern browser features used directly in the CSS and components — CSS custom properties, `backdrop-filter`, `color-mix()`, and CSS logical properties (`insetInlineEnd`, `marginInlineStart`) — so it targets current evergreen desktop browsers rather than a specified compatibility matrix.
+
+## Project Status
+
+Prototype / reference stage. The token set and 22-component library are complete and internally consistent, and both UI kits are functional click-through demonstrations. Neither kit is connected to a backend, real authentication, or persisted data, and three portal sections (Site clinics, Stock and equipment, Settings) are explicitly left as unbuilt placeholders. No production website or platform currently exists in this project.
+
+## Future Improvements
+
+Based on gaps and placeholders visible in the code itself:
+
+- **Unbuilt portal sections** — Site clinics, Stock and equipment, and Settings render a placeholder card rather than a real screen.
+- **Non-functional certificate filters** — the search/site/status controls on the Certificates screen are rendered but not wired to filter the table.
+- **No responsive layouts** — both kits are built for a single fixed desktop viewport.
+- **Partial Arabic/RTL support** — Arabic appears only in the header language toggle and footer copyright; there is no fully translated or mirrored RTL screen.
+- **Substituted fonts and icons** — Nunito Sans, IBM Plex Sans Arabic and Lucide are stand-ins; no licensed brand font files or a custom icon set are included in the project.
+- **No photography** — every image slot uses the `PhotoSlot` placeholder.
+- **No automated linting/testing wired up** — the `_adherence.oxlintrc.json` ruleset exists but is not run by any script in the project.
+
+## License
+
+No license file or license declaration is present in this project.
