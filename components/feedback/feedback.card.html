@@ -1,0 +1,36 @@
+<!-- @dsCard group="Components" viewport="700x320" name="Feedback — alerts, toasts, tooltip, meters" subtitle="Persistent alerts, ink-ground toasts, hover labels and completion meters" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@0.470.0/dist/umd/lucide.js"></script>
+<script src="../../_ds_bundle.js"></script><style>body{margin:0;padding:20px;background:var(--surface-page);font:var(--type-body)}.row{display:flex;flex-wrap:wrap;align-items:center;gap:14px}.col{display:flex;flex-direction:column;gap:14px}.lbl{font:var(--type-eyebrow);letter-spacing:var(--tracking-widest);text-transform:uppercase;color:var(--text-muted)}</style></head><body><div id="root"></div>
+<script type="text/babel">
+const { Alert, Toast, Tooltip, ProgressMeter, Button, Badge, Icon } = window.MedicalAllianceDesignSystem_32f8e4;
+const App = () => (
+  <div className="col" style={{gap:16}}>
+    <Alert tone="warning" title="4 certificates expire this month"
+      icon={<Icon name="calendar-clock" size={18} />}
+      actions={<Button size="sm" variant="secondary">Review schedule</Button>}>
+      Jazan Site 4 and Yanbu Terminal have workers due for periodic examination.
+    </Alert>
+    <div className="row" style={{gap:16,alignItems:'stretch'}}>
+      <Alert tone="success" title="Record locked" icon={<Icon name="lock" size={16} />} style={{flex:1}}>
+        Certificate MA-40118 issued 12 Sep 2026.
+      </Alert>
+      <Alert tone="danger" title="Stock below threshold" icon={<Icon name="package" size={16} />} onDismiss={()=>{}} style={{flex:1}}>
+        Adrenaline 1:1000 — 2 units remaining at Site 4.
+      </Alert>
+    </div>
+    <div className="row" style={{gap:20,alignItems:'flex-start'}}>
+      <Toast tone="success" title="Certificate issued" icon={<Icon name="check" size={16} />}>MA-40118 · valid to 14 Mar 2027</Toast>
+      <div className="col" style={{flex:1,gap:12}}>
+        <ProgressMeter label="Periodic screening coverage" valueLabel="164 / 200" value={164} max={200} />
+        <ProgressMeter tone="warning" label="Medication stock — Site 4" valueLabel="38%" value={38} />
+        <Tooltip label="Spirometry — lung function"><Badge tone="info">SPI</Badge></Tooltip>
+      </div>
+    </div>
+  </div>
+);
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script></body></html>

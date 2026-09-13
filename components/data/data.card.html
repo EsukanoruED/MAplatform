@@ -1,0 +1,32 @@
+<!-- @dsCard group="Components" viewport="700x340" name="Data — stat tiles and record table" subtitle="Tabular metric tiles and the hairline worker-record table" -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@0.470.0/dist/umd/lucide.js"></script>
+<script src="../../_ds_bundle.js"></script><style>body{margin:0;padding:20px;background:var(--surface-page);font:var(--type-body)}.row{display:flex;flex-wrap:wrap;align-items:center;gap:14px}.col{display:flex;flex-direction:column;gap:14px}.lbl{font:var(--type-eyebrow);letter-spacing:var(--tracking-widest);text-transform:uppercase;color:var(--text-muted)}</style></head><body><div id="root"></div>
+<script type="text/babel">
+const { StatTile, DataTable, Badge, Icon } = window.MedicalAllianceDesignSystem_32f8e4;
+const rows = [
+  {id:'MA-40118',name:'A. Al-Harbi',site:'Jazan Site 4',status:'Fit for duty',tone:'success',expires:'14 Mar 2027'},
+  {id:'MA-40207',name:'R. Menon',site:'Yanbu Terminal',status:'Fit with restrictions',tone:'warning',expires:'02 Dec 2026'},
+  {id:'MA-39884',name:'S. Okonkwo',site:'Jazan Site 4',status:'Not fit',tone:'danger',expires:'—'},
+  {id:'MA-40311',name:'K. Ahmed',site:'Riyadh Depot',status:'Fit for duty',tone:'success',expires:'28 Jul 2027'},
+];
+const App = () => (
+  <div className="col" style={{gap:18}}>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14}}>
+      <StatTile label="Workers cleared" value="1,284" delta="42 this week" deltaDirection="up" icon={<Icon name="shield-check" size={18} />} />
+      <StatTile label="Due in 30 days" value="76" unit="workers" tone="brand" icon={<Icon name="calendar-clock" size={18} />} />
+      <StatTile tone="ink" label="Active site clinics" value="7" footnote="3 remote · 4 industrial" />
+    </div>
+    <DataTable dense onRowClick={()=>{}} columns={[
+      {key:'id',header:'Worker ID',mono:true,width:'120px'},
+      {key:'name',header:'Name'},
+      {key:'site',header:'Site'},
+      {key:'status',header:'Fitness',render:r => <Badge tone={r.tone} dot>{r.status}</Badge>},
+      {key:'expires',header:'Certificate expires',align:'end',numeric:true}]} rows={rows} />
+  </div>
+);
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script></body></html>

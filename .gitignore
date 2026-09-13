@@ -1,0 +1,11 @@
+# Claude Design system internals
+.thumbnail
+SKILL.md
+thumbnail.html
+scraps/
+
+# Duplicate uploads folder
+uploads/
+
+# Large source files (store in Figma/Drive instead)
+assets/logo/source/

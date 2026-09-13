@@ -1,0 +1,7 @@
+/* Webfonts.
+   SUBSTITUTION NOTICE: no font binaries were supplied with the brand assets.
+   The wordmark's Latin letterforms are a geometric humanist sans; Nunito Sans is the
+   closest Google Fonts match. The Arabic wordmark is a modern geometric naskh;
+   IBM Plex Sans Arabic is the closest Google Fonts match. Replace both if the real
+   licensed families are provided. */
+@import url("https://fonts.googleapis.com/css2?family=Nunito+Sans:ital,opsz,wght@0,6..12,300..900;1,6..12,300..900&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");

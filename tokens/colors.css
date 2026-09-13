@@ -1,0 +1,93 @@
+:root{
+/* ── Base: Alliance Maroon (from the logo mark, #801717) ───────────────── */
+--ma-maroon-50:#FBF3F3;--ma-maroon-100:#F5DEDE;--ma-maroon-200:#E8BEBE;
+--ma-maroon-300:#D69292;--ma-maroon-400:#BD5F5F;--ma-maroon-500:#9E2B2B;
+--ma-maroon-600:#801717;--ma-maroon-700:#6A1214;--ma-maroon-800:#4E0E10;
+--ma-maroon-900:#2A0E0D;--ma-maroon-950:#1A0808;
+
+/* ── Base: warm neutrals (tinted toward the maroon so greys never go blue) ── */
+--ma-neutral-0:#FFFFFF;--ma-neutral-25:#FBFAF9;--ma-neutral-50:#F6F4F3;
+--ma-neutral-100:#EDEAE8;--ma-neutral-200:#DEDAD7;--ma-neutral-300:#C4BFBB;
+--ma-neutral-400:#A19B97;--ma-neutral-500:#7D7772;--ma-neutral-600:#5C5753;
+--ma-neutral-700:#423E3B;--ma-neutral-800:#2A2725;--ma-neutral-900:#171514;
+
+/* ── Base: clinical support hues (system extension, not in the supplied mark) ── */
+--ma-teal-50:#EAF4F4;--ma-teal-100:#CFE6E7;--ma-teal-500:#12888C;
+--ma-teal-600:#0E6E72;--ma-teal-700:#0A5457;
+--ma-green-50:#EBF5EE;--ma-green-100:#D0E8D8;--ma-green-500:#2A9358;
+--ma-green-600:#1F7A46;--ma-green-700:#165C35;
+--ma-amber-50:#FDF4E5;--ma-amber-100:#F7E3BF;--ma-amber-500:#B87907;
+--ma-amber-600:#9A6206;--ma-amber-700:#764A05;
+--ma-red-50:#FCEDEC;--ma-red-100:#F7D6D3;--ma-red-500:#CE3327;
+--ma-red-600:#B3261E;--ma-red-700:#8C1D17;
+
+/* ── Semantic: text ───────────────────────────────────────────────────── */
+--text-primary:var(--ma-maroon-900);
+--text-secondary:var(--ma-neutral-600);
+--text-muted:var(--ma-neutral-500);
+--text-disabled:var(--ma-neutral-400);
+--text-brand:var(--ma-maroon-600);
+--text-inverse:var(--ma-neutral-0);
+--text-on-brand:var(--ma-neutral-0);
+--text-link:var(--ma-maroon-600);
+--text-link-hover:var(--ma-maroon-700);
+--text-success:var(--ma-green-700);
+--text-warning:var(--ma-amber-700);
+--text-danger:var(--ma-red-700);
+--text-info:var(--ma-teal-700);
+
+/* ── Semantic: surfaces ───────────────────────────────────────────────── */
+--surface-page:var(--ma-neutral-0);
+--surface-page-alt:var(--ma-neutral-25);
+--surface-sunken:var(--ma-neutral-50);
+--surface-card:var(--ma-neutral-0);
+--surface-card-hover:var(--ma-neutral-25);
+--surface-brand:var(--ma-maroon-600);
+--surface-brand-hover:var(--ma-maroon-700);
+--surface-brand-active:var(--ma-maroon-800);
+--surface-brand-soft:var(--ma-maroon-50);
+--surface-ink:var(--ma-maroon-900);
+--surface-ink-alt:var(--ma-maroon-950);
+--surface-success-soft:var(--ma-green-50);
+--surface-warning-soft:var(--ma-amber-50);
+--surface-danger-soft:var(--ma-red-50);
+--surface-info-soft:var(--ma-teal-50);
+--surface-overlay:rgba(23,21,20,.56);
+
+/* ── Semantic: borders ────────────────────────────────────────────────── */
+--border-subtle:var(--ma-neutral-100);
+--border-default:var(--ma-neutral-200);
+--border-strong:var(--ma-neutral-300);
+--border-brand:var(--ma-maroon-600);
+--border-inverse:rgba(255,255,255,.22);
+--border-danger:var(--ma-red-600);
+--border-success:var(--ma-green-600);
+
+/* ── Semantic: interaction ────────────────────────────────────────────── */
+--focus-ring:var(--ma-maroon-500);
+--focus-ring-offset:var(--ma-neutral-0);
+--selection-bg:var(--ma-maroon-100);
+--rule-hairline:1px solid var(--border-default);
+}
+
+/* Dark / ink-ground scope. Apply to a wrapper: <div class="ma-ink"> */
+.ma-ink{
+--text-primary:var(--ma-neutral-0);
+--text-secondary:rgba(255,255,255,.72);
+--text-muted:rgba(255,255,255,.56);
+--text-disabled:rgba(255,255,255,.34);
+--text-brand:var(--ma-maroon-200);
+--text-link:var(--ma-maroon-200);
+--text-link-hover:var(--ma-neutral-0);
+--surface-page:var(--ma-maroon-950);
+--surface-page-alt:var(--ma-maroon-900);
+--surface-sunken:rgba(255,255,255,.04);
+--surface-card:rgba(255,255,255,.05);
+--surface-card-hover:rgba(255,255,255,.08);
+--surface-brand-soft:rgba(128,23,23,.30);
+--border-subtle:rgba(255,255,255,.10);
+--border-default:rgba(255,255,255,.18);
+--border-strong:rgba(255,255,255,.30);
+--focus-ring:var(--ma-maroon-300);
+--focus-ring-offset:var(--ma-maroon-950);
+}

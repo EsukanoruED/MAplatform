@@ -1,0 +1,19 @@
+/* Minimal element defaults so specimens, cards and kits start from the brand. */
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;font:var(--type-body);color:var(--text-primary);background:var(--surface-page);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+::selection{background:var(--selection-bg);color:var(--ma-maroon-900)}
+a{color:var(--text-link);text-decoration-color:color-mix(in oklab,var(--text-link) 40%,transparent);text-underline-offset:2px;transition:color var(--duration-fast) var(--ease-standard)}
+a:hover{color:var(--text-link-hover);text-decoration-color:currentColor}
+:where(h1,h2,h3,h4,h5,h6,p,figure,blockquote){margin:0}
+h1{font:var(--type-heading-1);letter-spacing:var(--tracking-tight)}
+h2{font:var(--type-heading-2);letter-spacing:var(--tracking-tight)}
+h3{font:var(--type-heading-3)}
+h4{font:var(--type-heading-4)}
+:where(button,input,select,textarea){font-family:inherit;font-size:inherit}
+:where([dir="rtl"]),:where(.ma-ar){font-family:var(--font-arabic)}
+img,svg{display:block;max-width:100%}
+hr{border:0;border-top:var(--rule-hairline);margin:0}
+code,kbd,samp{font:var(--type-mono)}
+:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
+.ma-eyebrow{font:var(--type-eyebrow);letter-spacing:var(--tracking-widest);text-transform:uppercase;color:var(--text-brand)}
