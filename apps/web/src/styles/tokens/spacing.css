@@ -1,0 +1,19 @@
+:root{
+/* 4px base grid */
+--space-0:0;--space-px:1px;--space-0-5:2px;--space-1:4px;--space-1-5:6px;
+--space-2:8px;--space-2-5:10px;--space-3:12px;--space-4:16px;--space-5:20px;
+--space-6:24px;--space-7:28px;--space-8:32px;--space-10:40px;--space-12:48px;
+--space-14:56px;--space-16:64px;--space-20:80px;--space-24:96px;
+--space-32:128px;--space-40:160px;
+
+/* Named rhythm */
+--gutter-inline:24px;          /* page side padding, small screens */
+--gutter-inline-lg:56px;       /* page side padding, desktop */
+--stack-tight:8px;--stack:16px;--stack-loose:32px;
+--section-y:96px;              /* marketing section vertical rhythm */
+--section-y-tight:64px;
+--content-max:1240px;          /* site container */
+--prose-max:68ch;              /* reading measure */
+--control-h-sm:32px;--control-h-md:40px;--control-h-lg:48px;
+--sidebar-w:264px;--topbar-h:64px;
+}

@@ -1,0 +1,49 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "react",
+    "import"
+  ],
+  "rules": {
+    "react/forbid-elements": [
+      "warn",
+      {
+        "forbid": []
+      }
+    ],
+    "no-restricted-imports": [
+      "warn",
+      {
+        "patterns": [
+          {
+            "group": [
+              "src/components/*/*",
+              "**/components/brand/*",
+              "**/components/core/*",
+              "**/components/data/*",
+              "**/components/feedback/*",
+              "**/components/forms/*",
+              "**/components/navigation/*",
+              "**/components/overlay/*"
+            ],
+            "message": "Import design-system components from 'src/components' (the barrel), not component internals."
+          }
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/components/**"
+      ],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ],
+  "ignorePatterns": [
+    "dist/**",
+    "node_modules/**"
+  ]
+}

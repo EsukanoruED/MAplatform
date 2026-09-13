@@ -1,0 +1,210 @@
+// Medical Alliance Platform — Phase 1 schema.
+//
+// Tenancy rule: every tenant-owned table carries a non-nullable `companyId`. That
+// column is the only source of tenant truth; the API always derives it from the
+// authenticated server-side session, never from client input. Foreign keys back to
+// Company use onDelete: Restrict so a company's clinical history can never be
+// cascade-deleted.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums — statuses, roles and types are never free-text strings.
+// ---------------------------------------------------------------------------
+
+enum BillingType {
+  PER_REQUEST
+  SETTLEMENT
+}
+
+enum CompanyStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum CompanyUserRole {
+  COMPANY_ADMIN
+  COMPANY_REQUESTER
+}
+
+enum AdminUserRole {
+  ADMIN
+  REVIEWER
+}
+
+enum RequestType {
+  CHECKUP
+  FITNESS_CERTIFICATE
+}
+
+enum RequestStatus {
+  SUBMITTED
+  PENDING_PAYMENT
+  APPROVED
+  AT_LAB
+  RESULTS_RECEIVED
+  UNDER_REVIEW
+  COMPLETE
+  REJECTED
+}
+
+enum PaymentMethod {
+  PER_REQUEST
+  SETTLEMENT
+}
+
+enum PaymentStatus {
+  NOT_REQUIRED
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum ActorType {
+  COMPANY_USER
+  ADMIN_USER
+  SYSTEM
+}
+
+// ---------------------------------------------------------------------------
+// Tenants and identities
+// ---------------------------------------------------------------------------
+
+/// A client organisation. The tenant boundary of the whole platform.
+model Company {
+  id          String        @id @default(uuid())
+  legalName   String
+  billingType BillingType   @default(PER_REQUEST)
+  status      CompanyStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  users     CompanyUser[]
+  employees Employee[]
+  requests  Request[]
+
+  @@index([status])
+}
+
+/// A person acting on behalf of one Company. Deliberately a different table from
+/// AdminUser so no code path can promote a tenant account to platform admin.
+model CompanyUser {
+  id           String          @id @default(uuid())
+  companyId    String
+  name         String
+  email        String          @unique
+  passwordHash String
+  role         CompanyUserRole @default(COMPANY_REQUESTER)
+  active       Boolean         @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  createdRequests Request[] @relation("RequestCreatedBy")
+
+  @@index([companyId])
+}
+
+/// Medical Alliance staff. Separate table from CompanyUser — see the comment above.
+model AdminUser {
+  id           String        @id @default(uuid())
+  name         String
+  email        String        @unique
+  passwordHash String
+  role         AdminUserRole @default(REVIEWER)
+  active       Boolean       @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Tenant-owned clinical records
+// ---------------------------------------------------------------------------
+
+/// A worker belonging to one Company.
+model Employee {
+  id          String    @id @default(uuid())
+  companyId   String
+  fullName    String
+  nationalId  String
+  role        String?
+  dateOfBirth DateTime?
+  site        String?
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  requests Request[]
+
+  // A national ID identifies a worker within one company, not globally.
+  @@unique([companyId, nationalId])
+  @@index([companyId])
+}
+
+/// A partner laboratory. Platform-wide, not tenant-owned.
+model Lab {
+  id           String   @id @default(uuid())
+  name         String
+  contactEmail String   @unique
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  requests Request[]
+}
+
+/// A checkup or fitness-certificate request. The core business record.
+model Request {
+  id              String        @id @default(uuid())
+  companyId       String
+  employeeId      String
+  type            RequestType
+  status          RequestStatus @default(SUBMITTED)
+  paymentMethod   PaymentMethod @default(PER_REQUEST)
+  paymentStatus   PaymentStatus @default(PENDING)
+  assignedLabId   String?
+  createdByUserId String?
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  company      Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee     Employee             @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  assignedLab  Lab?                 @relation(fields: [assignedLabId], references: [id], onDelete: Restrict)
+  createdBy    CompanyUser?         @relation("RequestCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  statusEvents RequestStatusEvent[]
+
+  // Composite index serves the company dashboard's tenant-scoped queue.
+  @@index([companyId, status])
+  // Plain status index serves the admin console's cross-company queue.
+  @@index([status])
+  @@index([employeeId])
+}
+
+/// Append-only audit trail of every status transition on a Request.
+model RequestStatusEvent {
+  id            String         @id @default(uuid())
+  requestId     String
+  fromStatus    RequestStatus?
+  toStatus      RequestStatus
+  changedByType ActorType
+  changedById   String?
+  note          String?
+  changedAt     DateTime       @default(now())
+
+  request Request @relation(fields: [requestId], references: [id], onDelete: Restrict)
+
+  @@index([requestId, changedAt])
+}

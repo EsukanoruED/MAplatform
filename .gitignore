@@ -9,3 +9,29 @@ uploads/
 
 # Large source files (store in Figma/Drive instead)
 assets/logo/source/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment / secrets — never commit a real .env
+.env
+.env.*
+!.env.example
+
+# Prisma generated client
+apps/api/src/generated/
+apps/api/prisma/*.db
+
+# Test & tooling artefacts
+coverage/
+.vite/
+.vitest/
+playwright-report/
+test-results/
+*.log
+npm-debug.log*

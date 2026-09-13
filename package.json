@@ -1,0 +1,41 @@
+{
+  "name": "medical-alliance-platform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Medical Alliance Platform \u2014 occupational health portal and corporate website.",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "apps/web",
+    "apps/api"
+  ],
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:api dev:web",
+    "dev:web": "npm run dev --workspace=apps/web",
+    "dev:api": "npm run dev --workspace=apps/api",
+    "build": "npm run build --workspace=apps/api && npm run build --workspace=apps/web",
+    "build:web": "npm run build --workspace=apps/web",
+    "build:api": "npm run build --workspace=apps/api",
+    "test": "npm run test --workspace=apps/api && npm run test --workspace=apps/web",
+    "test:api": "npm run test --workspace=apps/api",
+    "test:web": "npm run test --workspace=apps/web",
+    "typecheck": "npm run typecheck --workspace=apps/api && npm run typecheck --workspace=apps/web",
+    "lint": "npm run lint --workspace=apps/web",
+    "db:migrate": "npm run db:migrate --workspace=apps/api",
+    "db:deploy": "npm run db:deploy --workspace=apps/api",
+    "db:seed": "npm run db:seed --workspace=apps/api",
+    "db:reset": "npm run db:reset --workspace=apps/api",
+    "db:studio": "npm run db:studio --workspace=apps/api",
+    "db:verify": "npm run db:verify --workspace=apps/api"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5",
+    "oxlint": "^1.82.0",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0"
+  }
+}

@@ -1,3 +1,20 @@
+> **Status note.** This document describes the original design-system and
+> click-through prototype that lived at the repository root (`components/`,
+> `tokens/`, `ui_kits/`, `_ds_bundle.js`). Those files remain in the repository
+> as design reference, but they are **no longer the running application**.
+>
+> Phase 1 migrated the tokens and all 22 components into a real Vite + React +
+> TypeScript app under `apps/web`, and added a Node + Express + Prisma +
+> PostgreSQL API under `apps/api`. The CDN/Babel-in-browser loading pattern
+> described below is not used by the application any more.
+>
+> **Start at [`../README.md`](../README.md)** for how to install, configure and
+> run the platform. Read on for the design system's own reference: token
+> structure, component inventory, accessibility behaviour and brand rules — all
+> of which still apply to the migrated `.tsx` components.
+
+---
+
 # Medical Alliance — Design System
 
 **التحالف الطبي**

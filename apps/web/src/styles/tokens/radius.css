@@ -1,0 +1,13 @@
+:root{
+/* The mark is built from clean geometric arcs — radii stay tight and
+   architectural. Nothing in the system is pill-shaped except status chips. */
+--radius-none:0;--radius-xs:2px;--radius-sm:4px;--radius-md:6px;
+--radius-lg:10px;--radius-xl:16px;--radius-2xl:24px;--radius-pill:999px;
+--radius-control:var(--radius-sm);
+--radius-card:var(--radius-lg);
+--radius-surface:var(--radius-xl);
+--radius-chip:var(--radius-pill);
+--border-width-hairline:1px;
+--border-width-thick:2px;
+--border-width-accent:3px;   /* brand rule under section eyebrows */
+}
