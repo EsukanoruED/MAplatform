@@ -57,4 +57,23 @@ export const env = {
     windowMinutes: int('AUTH_RATE_LIMIT_WINDOW_MINUTES', 15),
     maxAttempts: int('AUTH_RATE_LIMIT_MAX_ATTEMPTS', 5),
   },
+  storage: {
+    /**
+     * Which StorageAdapter backs Document bytes. Only 'local' exists in Phase 2;
+     * see src/services/storage.ts for the interface an S3 driver would implement.
+     */
+    driver: process.env.STORAGE_DRIVER ?? 'local',
+    /**
+     * Where the local driver writes. Deliberately OUTSIDE apps/web so clinical
+     * files can never be served as static frontend assets.
+     */
+    localDir: process.env.STORAGE_LOCAL_DIR ?? path.resolve(__dirname, '..', 'var', 'storage'),
+    maxUploadBytes: int('MAX_UPLOAD_BYTES', 10 * 1024 * 1024),
+  },
+  billing: {
+    currency: process.env.BILLING_CURRENCY ?? 'SAR',
+    /** Default price per request, in minor units (halalas). */
+    checkupPriceMinor: int('BILLING_CHECKUP_PRICE_MINOR', 25000),
+    certificatePriceMinor: int('BILLING_CERTIFICATE_PRICE_MINOR', 40000),
+  },
 } as const;

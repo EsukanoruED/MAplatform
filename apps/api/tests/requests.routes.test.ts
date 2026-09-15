@@ -76,12 +76,33 @@ describe('POST /api/requests', () => {
     expect(res.body.request.assignedLab).toMatchObject({ id: labId, name: 'Test Laboratory' });
   });
 
-  it('rejects an inactive lab', async () => {
+  /**
+   * Phase 2 separates the two lab failure modes on purpose: a lab that does not
+   * exist is a 404, while one that exists but has been deactivated is a 400 with
+   * a message naming it, so the user can pick another. Phase 1 returned 404 for
+   * both, which told the user nothing actionable.
+   */
+  it('rejects an inactive lab with an actionable 400', async () => {
     await prisma.lab.update({ where: { id: labId }, data: { active: false } });
     const res = await request(app)
       .post('/api/requests')
       .set('Cookie', cookie)
       .send({ employeeId: tenant.employees[0].id, type: RequestType.CHECKUP, assignedLabId: labId });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/not currently accepting requests/i);
+    expect(await prisma.request.count()).toBe(0);
+  });
+
+  it('still rejects a lab id that does not exist with a 404', async () => {
+    const res = await request(app)
+      .post('/api/requests')
+      .set('Cookie', cookie)
+      .send({
+        employeeId: tenant.employees[0].id,
+        type: RequestType.CHECKUP,
+        assignedLabId: '99999999-9999-4999-8999-999999999999',
+      });
 
     expect(res.status).toBe(404);
     expect(await prisma.request.count()).toBe(0);

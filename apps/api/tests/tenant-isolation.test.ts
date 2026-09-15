@@ -10,16 +10,20 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
-import { RequestType } from '@prisma/client';
+import { AdminUserRole, RequestStatus, RequestType } from '@prisma/client';
 import { createApp } from '../src/app';
 import {
   TEST_PASSWORD,
+  createDocumentRow,
+  createPaymentRow,
   createPlatformAdmin,
   createRequestRow,
   createTenant,
   login,
   prisma,
   resetDatabase,
+  restoreStorage,
+  useInMemoryStorage,
 } from './helpers';
 import type { TenantFixture } from './helpers';
 
@@ -270,5 +274,247 @@ describe('database-level tenancy', () => {
     await createRequestRow(companyA.company.id, companyA.employees[0].id, companyA.admin.id);
     await expect(prisma.company.delete({ where: { id: companyA.company.id } })).rejects.toThrow();
     expect(await prisma.company.findUnique({ where: { id: companyA.company.id } })).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2 resources — employees, documents, payments and the workflow
+// ---------------------------------------------------------------------------
+
+describe('Phase 2: employees are tenant-scoped', () => {
+  it("Company B cannot read Company A's employee detail", async () => {
+    const asOwner = await request(app)
+      .get(`/api/employees/${companyA.employees[0].id}`)
+      .set('Cookie', cookieA);
+    expect(asOwner.status).toBe(200);
+
+    const asOther = await request(app)
+      .get(`/api/employees/${companyA.employees[0].id}`)
+      .set('Cookie', cookieB);
+    expect(asOther.status).toBe(404);
+    expect(JSON.stringify(asOther.body)).not.toContain(companyA.employees[0].fullName);
+  });
+
+  it("Company B cannot edit Company A's employee", async () => {
+    const res = await request(app)
+      .patch(`/api/employees/${companyA.employees[0].id}`)
+      .set('Cookie', cookieB)
+      .send({ role: 'Hijacked' });
+
+    expect(res.status).toBe(404);
+
+    const row = await prisma.employee.findUniqueOrThrow({
+      where: { id: companyA.employees[0].id },
+    });
+    expect(row.role).not.toBe('Hijacked');
+  });
+
+  it("Company B's roster never contains Company A's workers", async () => {
+    const res = await request(app).get('/api/employees?active=all').set('Cookie', cookieB);
+
+    const ids = res.body.employees.map((e: { id: string }) => e.id);
+    for (const employee of companyA.employees) expect(ids).not.toContain(employee.id);
+    expect(res.body.total).toBe(2);
+  });
+
+  it('a search cannot reach across tenants', async () => {
+    const res = await request(app).get('/api/employees?search=alpha').set('Cookie', cookieB);
+    expect(res.body.employees).toHaveLength(0);
+  });
+});
+
+describe('Phase 2: documents are tenant-scoped', () => {
+  it("Company B cannot read or download Company A's document", async () => {
+    const storage = useInMemoryStorage();
+    try {
+      const aRequest = await createRequestRow(
+        companyA.company.id,
+        companyA.employees[0].id,
+        companyA.admin.id,
+      );
+      const document = await createDocumentRow({
+        companyId: companyA.company.id,
+        requestId: aRequest.id,
+        storage,
+      });
+
+      const metadata = await request(app)
+        .get(`/api/documents/${document.id}`)
+        .set('Cookie', cookieB);
+      expect(metadata.status).toBe(404);
+
+      const download = await request(app)
+        .get(`/api/documents/${document.id}/download`)
+        .set('Cookie', cookieB);
+      expect(download.status).toBe(404);
+
+      // And the owner can, so the 404 is about tenancy rather than a broken fixture.
+      const asOwner = await request(app)
+        .get(`/api/documents/${document.id}`)
+        .set('Cookie', cookieA);
+      expect(asOwner.status).toBe(200);
+    } finally {
+      restoreStorage();
+    }
+  });
+
+  it("Company B cannot list the documents on Company A's request", async () => {
+    const aRequest = await createRequestRow(
+      companyA.company.id,
+      companyA.employees[0].id,
+      companyA.admin.id,
+    );
+
+    const res = await request(app)
+      .get(`/api/requests/${aRequest.id}/documents`)
+      .set('Cookie', cookieB);
+    expect(res.status).toBe(404);
+  });
+
+  it("Company B cannot attach a document to Company A's request", async () => {
+    const storage = useInMemoryStorage();
+    try {
+      const aRequest = await createRequestRow(
+        companyA.company.id,
+        companyA.employees[0].id,
+        companyA.admin.id,
+      );
+
+      const res = await request(app)
+        .post(`/api/requests/${aRequest.id}/documents`)
+        .set('Cookie', cookieB)
+        .attach('file', Buffer.from('%PDF-1.4 intruder'), {
+          filename: 'x.pdf',
+          contentType: 'application/pdf',
+        });
+
+      expect(res.status).toBe(404);
+      expect(await prisma.document.count()).toBe(0);
+      expect(storage.objects.size).toBe(0);
+    } finally {
+      restoreStorage();
+    }
+  });
+});
+
+describe('Phase 2: payments are tenant-scoped', () => {
+  it("Company B's ledger never contains Company A's payments", async () => {
+    await createPaymentRow({ companyId: companyA.company.id, amountMinor: 99999 });
+
+    const res = await request(app).get('/api/payments').set('Cookie', cookieB);
+
+    expect(res.body.payments).toHaveLength(0);
+    expect(res.body.summary.outstandingMinor).toBe(0);
+    expect(JSON.stringify(res.body)).not.toContain('99999');
+  });
+
+  it("Company B cannot read the payments on Company A's request", async () => {
+    const aRequest = await createRequestRow(
+      companyA.company.id,
+      companyA.employees[0].id,
+      companyA.admin.id,
+    );
+    await createPaymentRow({ companyId: companyA.company.id, requestId: aRequest.id });
+
+    const res = await request(app)
+      .get(`/api/requests/${aRequest.id}/payments`)
+      .set('Cookie', cookieB);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('Phase 2: the workflow is tenant-scoped', () => {
+  it("Company B cannot transition Company A's request", async () => {
+    const aRequest = await createRequestRow(
+      companyA.company.id,
+      companyA.employees[0].id,
+      companyA.admin.id,
+    );
+
+    const res = await request(app)
+      .patch(`/api/requests/${aRequest.id}/status`)
+      .set('Cookie', cookieB)
+      .send({ status: RequestStatus.REJECTED });
+
+    expect(res.status).toBe(404);
+
+    const row = await prisma.request.findUniqueOrThrow({ where: { id: aRequest.id } });
+    expect(row.status).toBe(RequestStatus.SUBMITTED);
+    expect(await prisma.requestStatusEvent.count({ where: { requestId: aRequest.id } })).toBe(0);
+  });
+
+  it("Company B's dashboard summary counts only its own rows", async () => {
+    await createRequestRow(companyA.company.id, companyA.employees[0].id, companyA.admin.id);
+    await createRequestRow(companyA.company.id, companyA.employees[1].id, companyA.admin.id);
+
+    const res = await request(app)
+      .get('/api/dashboard/company/summary')
+      .set('Cookie', cookieB);
+
+    expect(res.body.summary.requests.total).toBe(0);
+    expect(res.body.summary.employees.total).toBe(2);
+    expect(res.body.recentRequests).toEqual([]);
+  });
+});
+
+describe('Phase 2: company users cannot reach the admin console', () => {
+  it.each([
+    ['get', '/api/admin/requests'],
+    ['get', '/api/admin/companies'],
+    ['get', '/api/admin/labs'],
+    ['get', '/api/admin/dashboard/summary'],
+  ])('%s %s refuses a company session', async (_method, path) => {
+    const res = await request(app).get(path).set('Cookie', cookieA);
+    expect(res.status).toBe(401);
+    expect(JSON.stringify(res.body)).not.toContain(companyB.company.legalName);
+  });
+
+  it('a company session cannot use the admin status route on its own request', async () => {
+    const own = await createRequestRow(
+      companyA.company.id,
+      companyA.employees[0].id,
+      companyA.admin.id,
+    );
+
+    const res = await request(app)
+      .patch(`/api/admin/requests/${own.id}/status`)
+      .set('Cookie', cookieA)
+      .send({ status: RequestStatus.APPROVED });
+
+    expect(res.status).toBe(401);
+    const row = await prisma.request.findUniqueOrThrow({ where: { id: own.id } });
+    expect(row.status).toBe(RequestStatus.SUBMITTED);
+  });
+});
+
+describe('Phase 2: admin roles are limited to their own operations', () => {
+  it('a REVIEWER may read the queue but not settle money', async () => {
+    await createPlatformAdmin('rev@medicalalliance.test', AdminUserRole.REVIEWER);
+    const reviewerCookie = await login(app, 'admin', 'rev@medicalalliance.test');
+    const payment = await createPaymentRow({ companyId: companyA.company.id });
+
+    const queue = await request(app).get('/api/admin/requests').set('Cookie', reviewerCookie);
+    expect(queue.status).toBe(200);
+
+    const settle = await request(app)
+      .post(`/api/admin/payments/${payment.id}/settle`)
+      .set('Cookie', reviewerCookie)
+      .send({});
+    expect(settle.status).toBe(403);
+  });
+
+  it('an ADMIN may do both', async () => {
+    await createPlatformAdmin('boss@medicalalliance.test', AdminUserRole.ADMIN);
+    const bossCookie = await login(app, 'admin', 'boss@medicalalliance.test');
+    const payment = await createPaymentRow({ companyId: companyA.company.id });
+
+    const queue = await request(app).get('/api/admin/requests').set('Cookie', bossCookie);
+    expect(queue.status).toBe(200);
+
+    const settle = await request(app)
+      .post(`/api/admin/payments/${payment.id}/settle`)
+      .set('Cookie', bossCookie)
+      .send({});
+    expect(settle.status).toBe(200);
   });
 });

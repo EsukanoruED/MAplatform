@@ -1,5 +1,6 @@
 import { ActorType, RequestStatus } from '@prisma/client';
-import { InvalidStatusTransitionError } from '../lib/errors';
+import { ForbiddenError, InvalidStatusTransitionError } from '../lib/errors';
+import type { Principal } from '../types/principal';
 
 /**
  * The Request status state machine. Kept here rather than in route handlers so
@@ -61,4 +62,93 @@ export function countByStatus(rows: Array<{ status: RequestStatus }>): RequestSt
     acc[row.status] += 1;
     return acc;
   }, emptyStatusCounts());
+}
+
+// ---------------------------------------------------------------------------
+// Who may perform which transition
+// ---------------------------------------------------------------------------
+
+/**
+ * Transition authority, keyed by the target status.
+ *
+ * The clinical pipeline is operated by Medical Alliance staff, so every forward
+ * transition is admin-side. A company can do exactly one thing to a request it
+ * filed: withdraw it, and only while nothing clinical has happened yet. That is
+ * expressed as REJECTED being reachable by a company principal only from
+ * SUBMITTED or PENDING_PAYMENT (see `companyWithdrawableFrom`).
+ *
+ * This matrix is the single source of truth. Routes never decide permissions
+ * themselves — they call `assertCanTransition`, so the company API and the admin
+ * API cannot drift apart.
+ */
+export type TransitionActor = 'company' | 'admin' | 'system';
+
+const ADMIN_ONLY: readonly TransitionActor[] = ['admin', 'system'];
+
+const TRANSITION_AUTHORITY: Readonly<Record<RequestStatus, readonly TransitionActor[]>> = {
+  [RequestStatus.SUBMITTED]: ADMIN_ONLY,
+  [RequestStatus.PENDING_PAYMENT]: ADMIN_ONLY,
+  [RequestStatus.APPROVED]: ADMIN_ONLY,
+  [RequestStatus.AT_LAB]: ADMIN_ONLY,
+  [RequestStatus.RESULTS_RECEIVED]: ADMIN_ONLY,
+  [RequestStatus.UNDER_REVIEW]: ADMIN_ONLY,
+  [RequestStatus.COMPLETE]: ADMIN_ONLY,
+  // Company users may withdraw their own request — but only from the states below.
+  [RequestStatus.REJECTED]: ['company', 'admin', 'system'],
+};
+
+/** The only states a company principal may withdraw (reject) a request from. */
+export const companyWithdrawableFrom: readonly RequestStatus[] = [
+  RequestStatus.SUBMITTED,
+  RequestStatus.PENDING_PAYMENT,
+];
+
+export function canActorTransition(
+  actor: TransitionActor,
+  from: RequestStatus,
+  to: RequestStatus,
+): boolean {
+  if (!canTransition(from, to)) return false;
+  if (!TRANSITION_AUTHORITY[to].includes(actor)) return false;
+  if (actor === 'company' && to === RequestStatus.REJECTED) {
+    return companyWithdrawableFrom.includes(from);
+  }
+  return true;
+}
+
+/**
+ * Validates a transition for a given actor, throwing the right error for the
+ * right reason: 422 when the move is not in the state machine at all, 403 when
+ * the move is legal but this actor may not perform it.
+ */
+export function assertCanTransition(
+  actor: TransitionActor,
+  from: RequestStatus,
+  to: RequestStatus,
+): void {
+  // Shape of the workflow first — an impossible move is impossible for everyone.
+  assertTransition(from, to);
+
+  if (!TRANSITION_AUTHORITY[to].includes(actor)) {
+    throw new ForbiddenError(
+      `A ${actor} account cannot move a request to ${to}. This transition is performed by Medical Alliance staff.`,
+    );
+  }
+  if (actor === 'company' && to === RequestStatus.REJECTED && !companyWithdrawableFrom.includes(from)) {
+    throw new ForbiddenError(
+      `A request can only be withdrawn while it is ${companyWithdrawableFrom.join(' or ')}. This one is ${from}.`,
+    );
+  }
+}
+
+/** The transitions a given actor may perform from a given state. */
+export function availableTransitions(
+  actor: TransitionActor,
+  from: RequestStatus,
+): RequestStatus[] {
+  return ALLOWED_TRANSITIONS[from].filter((to) => canActorTransition(actor, from, to));
+}
+
+export function actorFromPrincipal(principal: Principal): TransitionActor {
+  return principal.type === 'admin' ? 'admin' : 'company';
 }

@@ -33,6 +33,10 @@ jobs:
       TEST_DATABASE_URL: postgresql://ma_ci:ma_ci_password@localhost:5432/medical_alliance_test?schema=public
       # CI-only value. Real environments read this from their secret store.
       SESSION_SECRET: ci-only-session-secret-not-used-anywhere-else
+      # Document storage for the Phase 2 suites. The API tests swap in an
+      # in-memory adapter, but the local one still needs a writable path.
+      STORAGE_DRIVER: local
+      STORAGE_LOCAL_DIR: /tmp/ma-ci-storage
 
     steps:
       - uses: actions/checkout@v4

@@ -8,14 +8,77 @@
  * Passwords are bcrypt-hashed from SEED_DEMO_PASSWORD. That variable is a
  * well-known development value documented in .env.example — it is not a secret,
  * and a production database must never be seeded with it.
+ *
+ * Phase 2 extends the fixture to cover the whole workflow: requests spread
+ * across every status, a persisted status-event trail for each, certificate and
+ * result documents (including one expiring inside the dashboard's 30-day
+ * window), and payment rows for both billing arrangements.
+ *
+ * Document bytes are written through the same StorageAdapter the API uses, so a
+ * seeded certificate is genuinely downloadable rather than a dangling row.
  */
-import { PrismaClient, ActorType, AdminUserRole, BillingType, CompanyUserRole, PaymentMethod, PaymentStatus, RequestStatus, RequestType } from '@prisma/client';
+import {
+  PrismaClient,
+  ActorType,
+  AdminUserRole,
+  BillingType,
+  CompanyUserRole,
+  DocumentType,
+  LabNotificationStatus,
+  PaymentMethod,
+  PaymentStatus,
+  RequestStatus,
+  RequestType,
+} from '@prisma/client';
 import { hashPassword } from '../src/services/auth';
 import { env } from '../src/env';
+import { buildStorageKey, checksumOf, getStorage } from '../src/services/storage';
+import type { StorageAdapter } from '../src/services/storage';
 
 const prisma = new PrismaClient();
 
 const DEMO_PASSWORD = process.env.SEED_DEMO_PASSWORD ?? 'DemoPassw0rd!';
+
+/**
+ * Writes a seeded document through the real StorageAdapter, so the demo data is
+ * genuinely downloadable instead of a Document row pointing at nothing.
+ */
+async function writeSeedDocument(
+  storage: StorageAdapter,
+  input: {
+    companyId: string;
+    requestId: string;
+    type: DocumentType;
+    fileName: string;
+    text: string;
+    expiryDate?: Date;
+  },
+) {
+  const contentType = 'text/plain';
+  const body = Buffer.from(input.text, 'utf8');
+  const storageKey = buildStorageKey({
+    companyId: input.companyId,
+    requestId: input.requestId,
+    contentType,
+  });
+
+  await storage.put({ key: storageKey, body, contentType });
+
+  return prisma.document.create({
+    data: {
+      companyId: input.companyId,
+      requestId: input.requestId,
+      type: input.type,
+      fileName: input.fileName,
+      contentType,
+      byteSize: body.length,
+      storageKey,
+      checksum: checksumOf(body),
+      uploadedByType: ActorType.ADMIN_USER,
+      ...(input.expiryDate ? { expiryDate: input.expiryDate } : {}),
+    },
+  });
+}
 
 async function main(): Promise<void> {
   if (env.isProduction) {
@@ -58,7 +121,7 @@ async function main(): Promise<void> {
     },
   });
 
-  await prisma.companyUser.upsert({
+  const companyARequester = await prisma.companyUser.upsert({
     where: { email: 'requests@northgate-industrial.example' },
     update: { passwordHash, companyId: companyA.id },
     create: {
@@ -156,29 +219,178 @@ async function main(): Promise<void> {
     const aWorkers = await prisma.employee.findMany({ where: { companyId: companyA.id }, orderBy: { nationalId: 'asc' } });
     const bWorkers = await prisma.employee.findMany({ where: { companyId: companyB.id }, orderBy: { nationalId: 'asc' } });
 
-    const plan: Array<{
-      companyId: string; createdByUserId: string; employeeId: string;
-      type: RequestType; status: RequestStatus; paymentMethod: PaymentMethod; paymentStatus: PaymentStatus;
+    /**
+     * One entry per demo request. `history` lists the statuses the request moved
+     * through, so the seeded timeline looks like a real audit trail rather than a
+     * single synthetic row.
+     */
+    type Plan = {
+      companyId: string;
+      createdByUserId: string;
+      employeeId: string;
+      type: RequestType;
+      history: RequestStatus[];
+      paymentMethod: PaymentMethod;
+      paymentStatus: PaymentStatus;
       assignedLabId?: string;
-    }> = [
-      { companyId: companyA.id, createdByUserId: companyAAdmin.id, employeeId: aWorkers[0].id, type: RequestType.FITNESS_CERTIFICATE, status: RequestStatus.COMPLETE, paymentMethod: PaymentMethod.SETTLEMENT, paymentStatus: PaymentStatus.PAID, assignedLabId: labs[1].id },
-      { companyId: companyA.id, createdByUserId: companyAAdmin.id, employeeId: aWorkers[1].id, type: RequestType.CHECKUP, status: RequestStatus.AT_LAB, paymentMethod: PaymentMethod.SETTLEMENT, paymentStatus: PaymentStatus.PAID, assignedLabId: labs[0].id },
-      { companyId: companyA.id, createdByUserId: companyAAdmin.id, employeeId: aWorkers[2].id, type: RequestType.FITNESS_CERTIFICATE, status: RequestStatus.UNDER_REVIEW, paymentMethod: PaymentMethod.SETTLEMENT, paymentStatus: PaymentStatus.PAID, assignedLabId: labs[1].id },
-      { companyId: companyA.id, createdByUserId: companyAAdmin.id, employeeId: aWorkers[3].id, type: RequestType.CHECKUP, status: RequestStatus.SUBMITTED, paymentMethod: PaymentMethod.SETTLEMENT, paymentStatus: PaymentStatus.PENDING },
-      { companyId: companyB.id, createdByUserId: companyBAdmin.id, employeeId: bWorkers[0].id, type: RequestType.FITNESS_CERTIFICATE, status: RequestStatus.PENDING_PAYMENT, paymentMethod: PaymentMethod.PER_REQUEST, paymentStatus: PaymentStatus.PENDING },
+      notes?: string;
+      /** Days from today until the issued certificate expires. */
+      certificateExpiresInDays?: number;
+      withResult?: boolean;
+    };
+
+    const plan: Plan[] = [
+      // Company A — SETTLEMENT billing, so requests are not gated on payment.
+      {
+        companyId: companyA.id, createdByUserId: companyAAdmin.id, employeeId: aWorkers[0].id,
+        type: RequestType.FITNESS_CERTIFICATE,
+        history: [RequestStatus.SUBMITTED, RequestStatus.APPROVED, RequestStatus.AT_LAB, RequestStatus.RESULTS_RECEIVED, RequestStatus.UNDER_REVIEW, RequestStatus.COMPLETE],
+        paymentMethod: PaymentMethod.SETTLEMENT, paymentStatus: PaymentStatus.NOT_REQUIRED,
+        assignedLabId: labs[1].id, notes: 'Annual periodic examination.',
+        certificateExpiresInDays: 180, withResult: true,
+      },
+      {
+        // Expires inside the dashboard's 30-day window, so "expiring soon" is non-zero.
+        companyId: companyA.id, createdByUserId: companyAAdmin.id, employeeId: aWorkers[1].id,
+        type: RequestType.FITNESS_CERTIFICATE,
+        history: [RequestStatus.SUBMITTED, RequestStatus.APPROVED, RequestStatus.AT_LAB, RequestStatus.RESULTS_RECEIVED, RequestStatus.UNDER_REVIEW, RequestStatus.COMPLETE],
+        paymentMethod: PaymentMethod.SETTLEMENT, paymentStatus: PaymentStatus.NOT_REQUIRED,
+        assignedLabId: labs[0].id, certificateExpiresInDays: 21, withResult: true,
+      },
+      {
+        companyId: companyA.id, createdByUserId: companyAAdmin.id, employeeId: aWorkers[1].id,
+        type: RequestType.CHECKUP,
+        history: [RequestStatus.SUBMITTED, RequestStatus.APPROVED, RequestStatus.AT_LAB],
+        paymentMethod: PaymentMethod.SETTLEMENT, paymentStatus: PaymentStatus.NOT_REQUIRED,
+        assignedLabId: labs[0].id, notes: 'Audiometry and spirometry.',
+      },
+      {
+        companyId: companyA.id, createdByUserId: companyAAdmin.id, employeeId: aWorkers[2].id,
+        type: RequestType.FITNESS_CERTIFICATE,
+        history: [RequestStatus.SUBMITTED, RequestStatus.APPROVED, RequestStatus.AT_LAB, RequestStatus.RESULTS_RECEIVED, RequestStatus.UNDER_REVIEW],
+        paymentMethod: PaymentMethod.SETTLEMENT, paymentStatus: PaymentStatus.NOT_REQUIRED,
+        assignedLabId: labs[1].id, withResult: true,
+      },
+      {
+        companyId: companyA.id, createdByUserId: companyARequester.id, employeeId: aWorkers[3].id,
+        type: RequestType.CHECKUP,
+        history: [RequestStatus.SUBMITTED],
+        paymentMethod: PaymentMethod.SETTLEMENT, paymentStatus: PaymentStatus.NOT_REQUIRED,
+      },
+      {
+        companyId: companyA.id, createdByUserId: companyARequester.id, employeeId: aWorkers[0].id,
+        type: RequestType.CHECKUP,
+        history: [RequestStatus.SUBMITTED, RequestStatus.REJECTED],
+        paymentMethod: PaymentMethod.SETTLEMENT, paymentStatus: PaymentStatus.NOT_REQUIRED,
+        notes: 'Withdrawn — duplicate of an existing request.',
+      },
+      // Company B — PER_REQUEST billing, so requests wait on payment.
+      {
+        companyId: companyB.id, createdByUserId: companyBAdmin.id, employeeId: bWorkers[0].id,
+        type: RequestType.FITNESS_CERTIFICATE,
+        history: [RequestStatus.SUBMITTED, RequestStatus.PENDING_PAYMENT],
+        paymentMethod: PaymentMethod.PER_REQUEST, paymentStatus: PaymentStatus.PENDING,
+      },
+      {
+        companyId: companyB.id, createdByUserId: companyBAdmin.id, employeeId: bWorkers[1].id,
+        type: RequestType.CHECKUP,
+        history: [RequestStatus.SUBMITTED, RequestStatus.PENDING_PAYMENT, RequestStatus.APPROVED, RequestStatus.AT_LAB, RequestStatus.RESULTS_RECEIVED, RequestStatus.UNDER_REVIEW, RequestStatus.COMPLETE],
+        paymentMethod: PaymentMethod.PER_REQUEST, paymentStatus: PaymentStatus.PAID,
+        assignedLabId: labs[0].id, certificateExpiresInDays: 300, withResult: true,
+      },
     ];
 
-    for (const r of plan) {
-      const created = await prisma.request.create({ data: r });
-      await prisma.requestStatusEvent.create({
+    const storage = getStorage();
+    const daysFromNow = (days: number) => {
+      const d = new Date();
+      d.setDate(d.getDate() + days);
+      return d;
+    };
+
+    for (const entry of plan) {
+      const finalStatus = entry.history[entry.history.length - 1];
+
+      const created = await prisma.request.create({
         data: {
-          requestId: created.id,
-          fromStatus: null,
-          toStatus: created.status,
-          changedByType: ActorType.SYSTEM,
-          note: 'Seeded demo record.',
+          companyId: entry.companyId,
+          createdByUserId: entry.createdByUserId,
+          employeeId: entry.employeeId,
+          type: entry.type,
+          status: finalStatus,
+          paymentMethod: entry.paymentMethod,
+          paymentStatus: entry.paymentStatus,
+          ...(entry.assignedLabId ? { assignedLabId: entry.assignedLabId } : {}),
+          ...(entry.notes ? { notes: entry.notes } : {}),
         },
       });
+
+      // Walk the history so the timeline has a row per transition, spaced out in
+      // time rather than all sharing one timestamp.
+      let previous: RequestStatus | null = null;
+      for (const [index, status] of entry.history.entries()) {
+        const changedAt = new Date();
+        changedAt.setDate(changedAt.getDate() - (entry.history.length - index) * 3);
+        await prisma.requestStatusEvent.create({
+          data: {
+            requestId: created.id,
+            fromStatus: previous,
+            toStatus: status,
+            changedByType: previous === null ? ActorType.COMPANY_USER : ActorType.ADMIN_USER,
+            changedById: previous === null ? entry.createdByUserId : null,
+            note: previous === null ? 'Request submitted.' : null,
+            changedAt,
+          },
+        });
+        previous = status;
+      }
+
+      // Ledger row, matching the company's billing arrangement.
+      await prisma.payment.create({
+        data: {
+          companyId: entry.companyId,
+          requestId: created.id,
+          amountMinor: entry.type === RequestType.FITNESS_CERTIFICATE ? 40000 : 25000,
+          currency: 'SAR',
+          method: entry.paymentMethod,
+          status: entry.paymentStatus === PaymentStatus.PAID ? PaymentStatus.PAID : PaymentStatus.PENDING,
+          ...(entry.paymentStatus === PaymentStatus.PAID
+            ? { paidAt: daysFromNow(-10), providerReference: 'SEED-SETTLEMENT' }
+            : {}),
+        },
+      });
+
+      // A request that reached the lab has a dispatch record. Nothing was
+      // emailed — see services/labNotification.ts.
+      if (entry.assignedLabId && entry.history.includes(RequestStatus.AT_LAB)) {
+        await prisma.labNotification.create({
+          data: {
+            requestId: created.id,
+            labId: entry.assignedLabId,
+            status: LabNotificationStatus.PENDING,
+          },
+        });
+      }
+
+      // Documents. Bytes go through the real StorageAdapter so they download.
+      if (entry.withResult) {
+        await writeSeedDocument(storage, {
+          companyId: entry.companyId,
+          requestId: created.id,
+          type: DocumentType.RESULT,
+          fileName: 'laboratory-result.txt',
+          text: `Laboratory result for request ${created.id}. Seeded development data.`,
+        });
+      }
+      if (entry.certificateExpiresInDays !== undefined && finalStatus === RequestStatus.COMPLETE) {
+        await writeSeedDocument(storage, {
+          companyId: entry.companyId,
+          requestId: created.id,
+          type: DocumentType.CERTIFICATE,
+          fileName: 'fitness-certificate.txt',
+          text: `Certificate of medical fitness for request ${created.id}. Seeded development data.`,
+          expiryDate: daysFromNow(entry.certificateExpiresInDays),
+        });
+      }
     }
   }
 
@@ -189,6 +401,10 @@ async function main(): Promise<void> {
     employees: await prisma.employee.count(),
     labs: await prisma.lab.count(),
     requests: await prisma.request.count(),
+    statusEvents: await prisma.requestStatusEvent.count(),
+    documents: await prisma.document.count(),
+    payments: await prisma.payment.count(),
+    labNotifications: await prisma.labNotification.count(),
   };
   // eslint-disable-next-line no-console
   console.log('Seed complete:', counts);

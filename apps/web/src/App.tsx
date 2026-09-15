@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { RequireAuth } from './components/RequireAuth';
 import { SiteLayout } from './layouts/SiteLayout';
 import { PortalLayout } from './layouts/PortalLayout';
+import { AdminLayout, RequireAdmin } from './layouts/AdminLayout';
 import { HomeScreen } from './pages/site/HomeScreen';
 import { ServicesScreen } from './pages/site/ServicesScreen';
 import { RemoteSiteScreen } from './pages/site/RemoteSiteScreen';
@@ -11,7 +12,11 @@ import { DashboardScreen } from './pages/portal/DashboardScreen';
 import { WorkersScreen } from './pages/portal/WorkersScreen';
 import { WorkerScreen } from './pages/portal/WorkerScreen';
 import { CertificatesScreen } from './pages/portal/CertificatesScreen';
+import { RequestsScreen } from './pages/portal/RequestsScreen';
+import { RequestDetailScreen } from './pages/portal/RequestDetailScreen';
 import { PlaceholderScreen } from './pages/portal/PlaceholderScreen';
+import { AdminRequestsScreen } from './pages/admin/AdminRequestsScreen';
+import { AdminRequestDetailScreen } from './pages/admin/AdminRequestDetailScreen';
 import { NotFoundScreen } from './pages/NotFoundScreen';
 
 /**
@@ -42,10 +47,21 @@ export function App() {
           <Route index element={<DashboardScreen />} />
           <Route path="workers" element={<WorkersScreen />} />
           <Route path="workers/:id" element={<WorkerScreen />} />
+          <Route path="requests" element={<RequestsScreen />} />
+          <Route path="requests/:id" element={<RequestDetailScreen />} />
           <Route path="certificates" element={<CertificatesScreen />} />
           <Route path="clinics" element={<PlaceholderScreen title="Site clinics" />} />
           <Route path="stock" element={<PlaceholderScreen title="Stock and equipment" />} />
           <Route path="settings" element={<PlaceholderScreen title="Settings" />} />
+        </Route>
+      </Route>
+
+      {/* Medical Alliance staff console — a separate identity and guard */}
+      <Route element={<RequireAdmin />}>
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<Navigate to="/admin/requests" replace />} />
+          <Route path="requests" element={<AdminRequestsScreen />} />
+          <Route path="requests/:id" element={<AdminRequestDetailScreen />} />
         </Route>
       </Route>
 

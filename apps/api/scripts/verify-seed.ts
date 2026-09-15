@@ -71,6 +71,60 @@ async function main(): Promise<void> {
   const events = await prisma.requestStatusEvent.count();
   assert(events >= aRequests.length + bRequests.length, `audit trail has ${events} status event(s)`);
 
+  // ---------------------------------------------------------------- Phase 2
+  const statuses = new Set((await prisma.request.findMany({ select: { status: true } })).map((r) => r.status));
+  assert(statuses.size >= 4, `requests span ${statuses.size} distinct statuses`);
+
+  const withHistory = await prisma.request.findMany({
+    select: { id: true, status: true, _count: { select: { statusEvents: true } } },
+  });
+  assert(
+    withHistory.every((r) => r._count.statusEvents > 0),
+    'every request has at least one persisted status event',
+  );
+
+  const documents = await prisma.document.findMany();
+  assert(documents.length > 0, `${documents.length} document(s) seeded`);
+  assert(
+    documents.every((d) => d.companyId && d.storageKey.startsWith(d.companyId)),
+    'every document carries its tenant and a tenant-prefixed storage key',
+  );
+
+  const certificates = documents.filter((d) => d.type === 'CERTIFICATE');
+  assert(certificates.length > 0, `${certificates.length} certificate(s) seeded`);
+  assert(
+    certificates.every((c) => c.expiryDate !== null),
+    'every certificate has an expiry date',
+  );
+  const soon = new Date();
+  soon.setDate(soon.getDate() + 30);
+  assert(
+    certificates.some((c) => c.expiryDate !== null && c.expiryDate <= soon),
+    'at least one certificate expires inside the 30-day dashboard window',
+  );
+
+  const payments = await prisma.payment.findMany();
+  assert(payments.length > 0, `${payments.length} payment(s) seeded`);
+  assert(
+    payments.every((p) => p.amountMinor > 0 && p.currency.length === 3),
+    'every payment has a positive amount in minor units and a currency',
+  );
+  assert(
+    payments.some((p) => p.status === 'PAID') && payments.some((p) => p.status === 'PENDING'),
+    'payments cover both settled and outstanding states',
+  );
+
+  const dispatches = await prisma.labNotification.findMany();
+  assert(dispatches.length > 0, `${dispatches.length} lab dispatch(es) seeded`);
+
+  // Cross-tenant spot check on the Phase 2 tables.
+  const aDocIds = new Set((await prisma.document.findMany({ where: { companyId: a.id } })).map((d) => d.id));
+  const bDocs = await prisma.document.findMany({ where: { companyId: b.id } });
+  assert(
+    bDocs.every((d) => !aDocIds.has(d.id)),
+    "a companyId-scoped document query returns only that company's files",
+  );
+
   // eslint-disable-next-line no-console
   console.log('\nAll seed checks passed.');
 }
