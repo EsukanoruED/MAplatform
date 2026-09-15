@@ -25,6 +25,7 @@ const SECTIONS = [
     items: [
       { to: '/portal', label: 'Dashboard', icon: 'layout-dashboard', end: true },
       { to: '/portal/workers', label: 'Workers', icon: 'users', end: false },
+      { to: '/portal/requests', label: 'Requests', icon: 'clipboard-check', end: false },
       { to: '/portal/certificates', label: 'Certificates', icon: 'file-badge', end: false },
     ],
   },

@@ -1,73 +1,58 @@
 import { Router } from 'express';
 import type { Request as ExpressRequest, Response } from 'express';
-import { CompanyUserRole, RequestStatus } from '@prisma/client';
-import { prisma } from '../lib/prisma';
+import { CompanyUserRole, DocumentType } from '@prisma/client';
 import { errorHandlerSafe } from '../lib/asyncHandler';
-import { ForbiddenTenantAccessError, NotFoundError } from '../lib/errors';
+import { ValidationError } from '../lib/errors';
 import { requireCompanyAuth, tenantScope } from '../middleware/requireAuth';
 import { requireRole } from '../middleware/requireRole';
+import { singleDocumentUpload } from '../middleware/upload';
 import { validateBody, validateParams, validateQuery } from '../middleware/validate';
-import { actorTypeFor, countByStatus } from '../services/requestWorkflow';
+import { countByStatus } from '../services/requestWorkflow';
+import {
+  createRequest,
+  getRequestDetail,
+  listRequestsForCompany,
+  transitionRequest,
+  transitionsAvailableTo,
+} from '../services/requests';
+import { listDocumentsForRequest, uploadDocument } from '../services/documents';
+import { listPaymentsForCompany } from '../services/payments';
 import {
   createRequestSchema,
   listRequestsQuerySchema,
   requestIdParamsSchema,
+  transitionRequestSchema,
+  uploadDocumentSchema,
 } from '../validation/requests';
-import type { CreateRequestInput, ListRequestsQuery, RequestIdParams } from '../validation/requests';
+import type {
+  CreateRequestInput,
+  ListRequestsQuery,
+  RequestIdParams,
+  TransitionRequestInput,
+} from '../validation/requests';
 
 export const requestsRouter = Router();
 
 /**
- * The projection returned to clients. Explicit, so adding a column to the schema
- * never silently widens the API surface.
+ * The company-facing request API.
+ *
+ * TENANT ISOLATION: every handler derives `companyId` from `tenantScope(req)` —
+ * the authenticated server-side session — and passes it to the service layer as
+ * the tenant scope. No handler accepts a companyId from the body, query or path;
+ * the zod schemas are `.strict()` and have no such field, so sending one is a
+ * 400 rather than a silent no-op.
  */
-const requestSelect = {
-  id: true,
-  companyId: true,
-  employeeId: true,
-  type: true,
-  status: true,
-  paymentMethod: true,
-  paymentStatus: true,
-  assignedLabId: true,
-  createdByUserId: true,
-  notes: true,
-  createdAt: true,
-  updatedAt: true,
-  employee: { select: { id: true, fullName: true, site: true, role: true } },
-  assignedLab: { select: { id: true, name: true } },
-} as const;
-
-// Every route below is behind requireCompanyAuth, so req.principal is a company
-// principal and tenantScope(req) is always available.
 requestsRouter.use(requireCompanyAuth);
 
-/**
- * GET /api/requests — the tenant's own requests.
- *
- * TENANT ISOLATION: `companyId` comes from `tenantScope(req)`, which reads the
- * authenticated server-side session and throws if there is no company principal.
- * It is spread into the Prisma `where` clause, so the database never returns
- * another company's rows — no post-query filtering is involved, and no query
- * parameter can widen the scope.
- */
+/** GET /api/requests — the tenant's own requests, with a status summary. */
 requestsRouter.get(
   '/',
   validateQuery(listRequestsQuerySchema),
   errorHandlerSafe(async (req: ExpressRequest, res: Response) => {
     const { companyId } = tenantScope(req);
-    const { status, type, take } = res.locals.query as ListRequestsQuery;
+    const { status, type, employeeId, search, take } = res.locals.query as ListRequestsQuery;
 
-    const rows = await prisma.request.findMany({
-      where: {
-        companyId, // <- from the session, never from the client
-        ...(status ? { status } : {}),
-        ...(type ? { type } : {}),
-      },
-      select: requestSelect,
-      orderBy: { createdAt: 'desc' },
-      take,
-    });
+    const rows = await listRequestsForCompany(companyId, { status, type, employeeId, search, take });
 
     res.status(200).json({
       requests: rows,
@@ -76,12 +61,33 @@ requestsRouter.get(
   }),
 );
 
+/** POST /api/requests — file a checkup or fitness-certificate request. */
+requestsRouter.post(
+  '/',
+  requireRole(CompanyUserRole.COMPANY_ADMIN, CompanyUserRole.COMPANY_REQUESTER),
+  validateBody(createRequestSchema),
+  errorHandlerSafe(async (req: ExpressRequest, res: Response) => {
+    const { companyId } = tenantScope(req);
+    const body = req.body as CreateRequestInput;
+
+    const request = await createRequest(companyId, req.principal!, {
+      employeeId: body.employeeId,
+      type: body.type,
+      ...(body.assignedLabId ? { assignedLabId: body.assignedLabId } : {}),
+      ...(body.notes ? { notes: body.notes } : {}),
+    });
+
+    res.status(201).json({ request });
+  }),
+);
+
 /**
- * GET /api/requests/:id — one request, scoped to the tenant.
+ * GET /api/requests/:id — full detail, including the persisted status timeline,
+ * documents, payments and lab dispatches.
  *
- * Uses findFirst with the companyId in the where clause rather than findUnique
- * by id: another company's request id resolves to no row and is reported as 404,
- * so the endpoint never confirms that an id exists elsewhere.
+ * `availableTransitions` tells the UI which workflow actions this principal may
+ * actually perform — the same matrix the write endpoint enforces, so the buttons
+ * shown and the permissions applied cannot drift apart.
  */
 requestsRouter.get(
   '/:id',
@@ -90,86 +96,120 @@ requestsRouter.get(
     const { companyId } = tenantScope(req);
     const { id } = res.locals.params as RequestIdParams;
 
-    const row = await prisma.request.findFirst({
-      where: { id, companyId },
-      select: {
-        ...requestSelect,
-        statusEvents: {
-          select: { id: true, fromStatus: true, toStatus: true, changedByType: true, changedAt: true },
-          orderBy: { changedAt: 'asc' },
-        },
-      },
-    });
-    if (!row) throw new ForbiddenTenantAccessError('No request with that id in your company.');
+    const request = await getRequestDetail(id, companyId);
 
-    res.status(200).json({ request: row });
+    res.status(200).json({
+      request,
+      availableTransitions: transitionsAvailableTo(req.principal!, request.status),
+    });
   }),
 );
 
 /**
- * POST /api/requests — create a request for one of the tenant's own employees.
+ * PATCH /api/requests/:id/status — request a workflow move.
  *
- * TENANT ISOLATION, two layers:
- *  1. The employee is looked up with the session's companyId in the where clause,
- *     so a request can never be filed against another company's worker.
- *  2. The row is written with that same session-derived companyId. The zod schema
- *     is `.strict()` and has no companyId field, so a client that sends one is
- *     rejected with 400 instead of having it ignored.
+ * The body names a TARGET status only. The service re-reads the current status
+ * inside its transaction and validates the move against both the state machine
+ * and the actor-permission matrix, so a company user cannot drive a request
+ * through the clinical pipeline — in practice the only move available to them is
+ * withdrawing a request they have just filed.
  */
-requestsRouter.post(
-  '/',
+requestsRouter.patch(
+  '/:id/status',
   requireRole(CompanyUserRole.COMPANY_ADMIN, CompanyUserRole.COMPANY_REQUESTER),
-  validateBody(createRequestSchema),
+  validateParams(requestIdParamsSchema),
+  validateBody(transitionRequestSchema),
   errorHandlerSafe(async (req: ExpressRequest, res: Response) => {
     const { companyId } = tenantScope(req);
-    const principal = req.principal!;
-    const body = req.body as CreateRequestInput;
+    const { id } = res.locals.params as RequestIdParams;
+    const body = req.body as TransitionRequestInput;
 
-    const employee = await prisma.employee.findFirst({
-      where: { id: body.employeeId, companyId }, // <- tenant-scoped lookup
-      select: { id: true },
-    });
-    if (!employee) {
-      throw new ForbiddenTenantAccessError('No employee with that id in your company.');
-    }
-
-    if (body.assignedLabId) {
-      const lab = await prisma.lab.findFirst({
-        where: { id: body.assignedLabId, active: true },
-        select: { id: true },
-      });
-      if (!lab) throw new NotFoundError('No active lab with that id.');
-    }
-
-    const created = await prisma.$transaction(async (tx) => {
-      const request = await tx.request.create({
-        data: {
-          companyId, // <- from the session, never from the client
-          employeeId: employee.id,
-          type: body.type,
-          status: RequestStatus.SUBMITTED,
-          ...(body.paymentMethod ? { paymentMethod: body.paymentMethod } : {}),
-          ...(body.assignedLabId ? { assignedLabId: body.assignedLabId } : {}),
-          ...(body.notes ? { notes: body.notes } : {}),
-          createdByUserId: principal.id,
-        },
-        select: requestSelect,
-      });
-
-      // Opening entry on the audit trail.
-      await tx.requestStatusEvent.create({
-        data: {
-          requestId: request.id,
-          fromStatus: null,
-          toStatus: RequestStatus.SUBMITTED,
-          changedByType: actorTypeFor('company'),
-          changedById: principal.id,
-        },
-      });
-
-      return request;
+    const request = await transitionRequest({
+      requestId: id,
+      toStatus: body.status,
+      principal: req.principal!,
+      companyScope: companyId, // <- confines the transition to the tenant's own rows
+      ...(body.note ? { note: body.note } : {}),
+      ...(body.assignedLabId ? { assignedLabId: body.assignedLabId } : {}),
     });
 
-    res.status(201).json({ request: created });
+    res.status(200).json({
+      request,
+      availableTransitions: transitionsAvailableTo(req.principal!, request.status),
+    });
+  }),
+);
+
+/** GET /api/requests/:id/documents — files attached to one of the tenant's requests. */
+requestsRouter.get(
+  '/:id/documents',
+  validateParams(requestIdParamsSchema),
+  errorHandlerSafe(async (req: ExpressRequest, res: Response) => {
+    const { companyId } = tenantScope(req);
+    const { id } = res.locals.params as RequestIdParams;
+
+    const documents = await listDocumentsForRequest(id, companyId);
+    res.status(200).json({ documents });
+  }),
+);
+
+/**
+ * POST /api/requests/:id/documents — attach a supporting file.
+ *
+ * A company may attach supporting paperwork (ATTACHMENT) only. RESULT and
+ * CERTIFICATE are clinical outputs issued by Medical Alliance, so a company
+ * cannot upload its own certificate: that route is admin-only.
+ */
+requestsRouter.post(
+  '/:id/documents',
+  requireRole(CompanyUserRole.COMPANY_ADMIN, CompanyUserRole.COMPANY_REQUESTER),
+  validateParams(requestIdParamsSchema),
+  singleDocumentUpload,
+  errorHandlerSafe(async (req: ExpressRequest, res: Response) => {
+    const { companyId } = tenantScope(req);
+    const { id } = res.locals.params as RequestIdParams;
+
+    const file = req.file;
+    if (!file) {
+      throw new ValidationError('Attach a file on the "file" field.', [
+        { path: 'file', message: 'A file is required.' },
+      ]);
+    }
+
+    const metadata = uploadDocumentSchema.parse(req.body ?? {});
+    if (metadata.type !== DocumentType.ATTACHMENT) {
+      throw new ValidationError(
+        'Companies may upload supporting attachments only. Results and certificates are issued by Medical Alliance.',
+        [{ path: 'type', message: 'Only ATTACHMENT is permitted here.' }],
+      );
+    }
+
+    const document = await uploadDocument({
+      requestId: id,
+      type: DocumentType.ATTACHMENT,
+      fileName: file.originalname,
+      contentType: file.mimetype,
+      body: file.buffer,
+      principal: req.principal!,
+      companyScope: companyId, // <- the upload cannot target another tenant's request
+    });
+
+    res.status(201).json({ document });
+  }),
+);
+
+/** GET /api/requests/:id/payments — the ledger rows for one request. */
+requestsRouter.get(
+  '/:id/payments',
+  validateParams(requestIdParamsSchema),
+  errorHandlerSafe(async (req: ExpressRequest, res: Response) => {
+    const { companyId } = tenantScope(req);
+    const { id } = res.locals.params as RequestIdParams;
+
+    // Confirms the request belongs to this tenant before exposing its payments.
+    await getRequestDetail(id, companyId);
+    const payments = await listPaymentsForCompany(companyId, { requestId: id });
+
+    res.status(200).json({ payments });
   }),
 );

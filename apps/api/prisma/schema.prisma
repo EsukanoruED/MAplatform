@@ -1,4 +1,4 @@
-// Medical Alliance Platform — Phase 1 schema.
+// Medical Alliance Platform — Phase 1 + Phase 2 schema.
 //
 // Tenancy rule: every tenant-owned table carries a non-nullable `companyId`. That
 // column is the only source of tenant truth; the API always derives it from the
@@ -75,6 +75,19 @@ enum ActorType {
   SYSTEM
 }
 
+/// What a stored file represents. Drives retention and who may see it.
+enum DocumentType {
+  RESULT
+  CERTIFICATE
+  ATTACHMENT
+}
+
+enum LabNotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
 // ---------------------------------------------------------------------------
 // Tenants and identities
 // ---------------------------------------------------------------------------
@@ -91,6 +104,8 @@ model Company {
   users     CompanyUser[]
   employees Employee[]
   requests  Request[]
+  documents Document[]
+  payments  Payment[]
 
   @@index([status])
 }
@@ -162,7 +177,8 @@ model Lab {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  requests Request[]
+  requests      Request[]
+  notifications LabNotification[]
 }
 
 /// A checkup or fitness-certificate request. The core business record.
@@ -180,11 +196,14 @@ model Request {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  company      Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  employee     Employee             @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  assignedLab  Lab?                 @relation(fields: [assignedLabId], references: [id], onDelete: Restrict)
-  createdBy    CompanyUser?         @relation("RequestCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
-  statusEvents RequestStatusEvent[]
+  company          Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee         Employee             @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  assignedLab      Lab?                 @relation(fields: [assignedLabId], references: [id], onDelete: Restrict)
+  createdBy        CompanyUser?         @relation("RequestCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  statusEvents     RequestStatusEvent[]
+  documents        Document[]
+  payments         Payment[]
+  labNotifications LabNotification[]
 
   // Composite index serves the company dashboard's tenant-scoped queue.
   @@index([companyId, status])
@@ -207,4 +226,115 @@ model RequestStatusEvent {
   request Request @relation(fields: [requestId], references: [id], onDelete: Restrict)
 
   @@index([requestId, changedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 — documents, payments and lab dispatch
+// ---------------------------------------------------------------------------
+
+/// A file attached to a Request: a lab result, an issued fitness certificate, or
+/// a supporting attachment.
+///
+/// `companyId` is denormalised from the parent Request on purpose. Tenant checks
+/// then never depend on a join, so a document query cannot accidentally be written
+/// without its tenant filter. The service layer always writes it from the parent
+/// request's companyId, never from client input.
+///
+/// Only the storage KEY is persisted. Bytes live behind the StorageAdapter
+/// (see src/services/storage.ts) and are streamed through an authorised endpoint,
+/// never served from the web app's public assets.
+model Document {
+  id             String       @id @default(uuid())
+  companyId      String
+  requestId      String
+  type           DocumentType
+  fileName       String
+  contentType    String
+  byteSize       Int
+  /// Server-generated opaque key. Never a client-supplied filename.
+  storageKey     String       @unique
+  checksum       String?
+  uploadedByType ActorType
+  uploadedById   String?
+  uploadedAt     DateTime     @default(now())
+  /// Certificates expire; results and attachments generally do not.
+  expiryDate     DateTime?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  request Request @relation(fields: [requestId], references: [id], onDelete: Restrict)
+
+  @@index([companyId])
+  @@index([requestId])
+  @@index([companyId, type])
+  // Serves the expiring-certificates dashboard query.
+  @@index([expiryDate])
+}
+
+/// A charge against a company, optionally tied to one request.
+///
+/// Amounts are stored as integer minor units (halalas/cents) rather than Decimal:
+/// integers are exact, and they serialise to JSON losslessly, which Prisma's
+/// Decimal does not.
+model Payment {
+  id                String        @id @default(uuid())
+  companyId         String
+  requestId         String?
+  amountMinor       Int
+  currency          String        @default("SAR")
+  method            PaymentMethod
+  status            PaymentStatus @default(PENDING)
+  /// Set by whichever payment provider is integrated later. Null in development.
+  providerReference String?
+  paidAt            DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  request Request? @relation(fields: [requestId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, status])
+  @@index([requestId])
+}
+
+/// One dispatch of a request to a laboratory.
+///
+/// Phase 2 records the intent and the outcome; actually sending the mail is the
+/// job of a provider that is not configured yet, so rows stay PENDING in
+/// development. See src/services/labNotification.ts.
+model LabNotification {
+  id                String                @id @default(uuid())
+  requestId         String
+  labId             String
+  status            LabNotificationStatus @default(PENDING)
+  sentAt            DateTime?
+  emailMessageId    String?
+  inboundReceivedAt DateTime?
+  lastError         String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  request Request @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  lab     Lab     @relation(fields: [labId], references: [id], onDelete: Restrict)
+
+  @@index([requestId])
+  @@index([labId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Infrastructure
+// ---------------------------------------------------------------------------
+
+/// The express-session store table, owned at runtime by connect-pg-simple.
+///
+/// Declared here ONLY so Prisma knows the table legitimately belongs to this
+/// schema — without it, every `migrate dev` plans to drop the live session table.
+/// No application code queries this model; session reads and writes go through
+/// the session middleware, never through the Prisma client.
+model UserSession {
+  sid    String   @id(map: "session_pkey") @db.VarChar
+  sess   Json     @db.Json
+  expire DateTime @db.Timestamp(6)
+
+  @@index([expire], map: "IDX_session_expire")
+  @@map("user_sessions")
 }

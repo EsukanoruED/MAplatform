@@ -81,12 +81,13 @@ test('5. the session cookie is httpOnly and holds no token readable from JavaScr
   expect(await page.evaluate(() => JSON.stringify(Object.entries(sessionStorage)))).toBe('[]');
 });
 
-test('6. creating a request persists it and it appears on the dashboard and register', async ({ page }) => {
+test('6. creating a request persists it and surfaces it across the portal', async ({ page }) => {
   await signIn(page, COMPANY_A);
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 
   const summary = page.getByRole('region', { name: 'Request summary' });
   const openTile = summary.getByText('Open requests').locator('xpath=../..');
+  await expect(openTile).toBeVisible();
   const before = Number((await openTile.innerText()).match(/\d+/)?.[0] ?? '0');
 
   await page.getByRole('button', { name: 'New examination' }).click();
@@ -101,43 +102,102 @@ test('6. creating a request persists it and it appears on the dashboard and regi
   await dialog.getByLabel('Notes').fill('Created by the Playwright end-to-end test.');
   await dialog.getByRole('button', { name: /Submit request/ }).click();
 
-  await expect(dialog).toBeHidden();
+  // Submitting takes you straight to the request that was just filed.
+  await expect(page).toHaveURL(/\/portal\/requests\/[0-9a-f-]{36}$/);
+  await expect(page.getByText('Created by the Playwright end-to-end test.')).toBeVisible();
 
-  // The open-request tile recomputes from the refreshed query.
-  await expect(openTile).toContainText(String(before + 1));
+  // It opens SUBMITTED, with an audit trail already written for it.
+  const timeline = page.getByRole('list', { name: 'Status history' });
+  await expect(timeline.getByRole('listitem')).toHaveCount(1);
+  await expect(timeline).toContainText('Submitted');
 
-  // And the new row is in the certificate register.
-  await page.goto('/portal/certificates');
-  await expect(page.getByRole('heading', { name: 'Certificates' })).toBeVisible();
-  const register = page.getByRole('table');
-  await expect(register).toBeVisible();
+  // It is in the request queue, with its real status and type.
+  await page.goto('/portal/requests');
+  const queue = page.getByRole('table');
+  await expect(queue).toBeVisible();
   // Scoped to the table: "Submitted" is also a hidden <option> in the filter.
-  await expect(register.getByText('Submitted', { exact: true }).first()).toBeVisible();
-  await expect(register).toContainText('Checkup');
+  await expect(queue.getByText('Submitted', { exact: true }).first()).toBeVisible();
+  await expect(queue).toContainText('Checkup');
+
+  // And the dashboard's open-request tile, which aggregates server-side, moved.
+  await page.goto('/portal');
+  await expect(openTile).toContainText(String(before + 1));
 });
 
-test('7. a second company never sees the first company\'s requests', async ({ page }) => {
-  // Company A's register.
+test('6b. the request detail screen shows the persisted status timeline', async ({ page }) => {
   await signIn(page, COMPANY_A);
-  await page.goto('/portal/certificates');
+
+  await page.goto('/portal/requests');
   await expect(page.getByRole('table')).toBeVisible();
-  const aWorkers = await page.getByRole('table').innerText();
-  expect(aWorkers).toContain('A. Al-Harbi');
+  await page.getByRole('table').locator('tbody tr').first().click();
+
+  // The timeline is rendered from RequestStatusEvent rows, not a fixed step list.
+  const timeline = page.getByRole('list', { name: 'Status history' });
+  await expect(timeline).toBeVisible();
+  await expect(timeline.getByRole('listitem').first()).toBeVisible();
+});
+
+test('7. a second company never sees the first company\'s workers or requests', async ({ page }) => {
+  // Company A's roster and queue.
+  await signIn(page, COMPANY_A);
+  await page.goto('/portal/workers');
+  await expect(page.getByRole('table')).toBeVisible();
+  expect(await page.getByRole('table').innerText()).toContain('A. Al-Harbi');
 
   // Sign out, sign in as Company B.
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page).toHaveURL(/\/portal\/login$/);
 
   await signIn(page, COMPANY_B);
-  await page.goto('/portal/certificates');
-  await expect(page.getByRole('heading', { name: 'Certificates' })).toBeVisible();
 
-  // Company B's register must not contain any of Company A's workers.
-  const bBody = await page.locator('body').innerText();
-  expect(bBody).not.toContain('A. Al-Harbi');
-  expect(bBody).not.toContain('R. Menon');
-  expect(bBody).not.toContain('S. Okonkwo');
-  expect(bBody).toContain('M. Haddad'); // Company B's own worker
+  // None of Company A's workers may appear anywhere in Company B's portal.
+  for (const route of ['/portal', '/portal/workers', '/portal/requests', '/portal/certificates']) {
+    await page.goto(route);
+    const body = await page.locator('body').innerText();
+    expect(body, `leak on ${route}`).not.toContain('A. Al-Harbi');
+    expect(body, `leak on ${route}`).not.toContain('R. Menon');
+    expect(body, `leak on ${route}`).not.toContain('S. Okonkwo');
+  }
+
+  await page.goto('/portal/workers');
+  await expect(page.getByRole('table')).toContainText('M. Haddad'); // B's own worker
+});
+
+test('9. a company user is refused the Medical Alliance staff console', async ({ page }) => {
+  await signIn(page, COMPANY_A);
+
+  // The admin guard sends a signed-in company user back to their own portal.
+  await page.goto('/admin/requests');
+  await expect(page).toHaveURL(/\/portal$/);
+  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+
+  // And the API refuses directly, which is the control that actually matters.
+  const response = await page.request.get('/api/admin/requests');
+  expect(response.status()).toBe(401);
+});
+
+test('10. employees can be registered and searched', async ({ page }) => {
+  await signIn(page, COMPANY_A);
+  await page.goto('/portal/workers');
+
+  const unique = `E2E-${Date.now()}`;
+  await page.getByRole('button', { name: 'Register worker' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+
+  await dialog.getByLabel('Full name').fill('E2E Test Worker');
+  await dialog.getByLabel(/National ID/).fill(unique);
+  await dialog.getByLabel('Job title').fill('Inspector');
+  await dialog.getByRole('button', { name: /Register worker/ }).click();
+
+  // Registering navigates straight to the new worker's record.
+  await expect(page.getByRole('heading', { name: 'E2E Test Worker' })).toBeVisible();
+  await expect(page.getByText(unique)).toBeVisible();
+
+  // And the roster search finds them, server-side.
+  await page.goto('/portal/workers');
+  await page.getByLabel('Search').fill('E2E Test Worker');
+  await expect(page.getByRole('table')).toContainText('E2E Test Worker');
 });
 
 test('8. sign out ends the session and re-protects the portal', async ({ page }) => {

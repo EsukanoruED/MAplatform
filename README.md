@@ -169,26 +169,36 @@ generates new ones.
 apps/web/src
   components/          22 design-system components (.tsx) + index.ts barrel
   styles/tokens/       the design tokens, plus self-hosted webfonts
-  layouts/             SiteLayout (public) and PortalLayout (authenticated)
+  layouts/             SiteLayout (public), PortalLayout (company), AdminLayout (staff)
   pages/site/          Home, Services, RemoteSite, Contact
-  pages/portal/        Login, Dashboard, Workers, Worker, Certificates
+  pages/portal/        Login, Dashboard, Workers, Worker, Requests, RequestDetail,
+                       Certificates, StatusTimeline, EmployeeFormModal, NewRequestModal
+  pages/admin/         AdminRequests, AdminRequestDetail
   lib/api.ts           the only HTTP client — always credentials: 'include'
   lib/auth.tsx         session state, sourced from GET /api/auth/me
-  lib/queries/         React Query hooks
+  lib/queries/         React Query hooks (requests, employees, workflow)
   components/RequireAuth.tsx   the /portal/* route guard
+  layouts/AdminLayout.tsx      RequireAdmin, the /admin/* route guard
 
 apps/api
-  prisma/schema.prisma Company, CompanyUser, AdminUser, Employee, Lab,
-                       Request, RequestStatusEvent
-  prisma/seed.ts       two tenants, users, labs, employees, demo requests
-  src/routes/          auth, requests, employees, admin
-  src/middleware/      requireAuth, requireRole, validate, errorHandler, rateLimiter
-  src/services/        auth (hashing/verification), requestWorkflow (state machine)
+  prisma/schema.prisma Company, CompanyUser, AdminUser, Employee, Lab, Request,
+                       RequestStatusEvent, Document, Payment, LabNotification
+  prisma/seed.ts       two tenants, users, labs, employees, requests across every
+                       status, documents, payments and lab dispatches
+  src/routes/          auth, requests, employees, labs, documents, certificates,
+                       payments, dashboard, admin
+  src/middleware/      requireAuth, requireRole, validate, upload, errorHandler,
+                       rateLimiter
+  src/services/        auth, requestWorkflow (state machine + actor matrix),
+                       requests, employees, documents, storage, payments, labs,
+                       labNotification
   src/validation/      zod schemas per resource
   tests/               unit, integration, and the tenant-isolation suite
 ```
 
 ### API surface (Phase 1)
+
+**Auth**
 
 | Method | Path | Auth |
 |---|---|---|
@@ -197,16 +207,132 @@ apps/api
 | `POST` | `/api/auth/admin/login` | public, rate-limited |
 | `POST` | `/api/auth/logout` | public |
 | `GET` | `/api/auth/me` | any session |
-| `GET` `POST` | `/api/requests` | company session, tenant-scoped |
-| `GET` | `/api/requests/:id` | company session, tenant-scoped |
-| `GET` | `/api/employees` | company session, tenant-scoped |
-| `GET` | `/api/admin/companies` | admin session (`ADMIN`, `REVIEWER`) |
-| `GET` | `/api/admin/requests` | admin session (`ADMIN` only) |
+
+**Company portal** — every route below is tenant-scoped from the session
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` `POST` | `/api/employees` | list (search, site and active filters, paging) / register |
+| `GET` `PATCH` | `/api/employees/:id` | detail + that worker's requests / edit (`COMPANY_ADMIN`) |
+| `GET` `POST` | `/api/requests` | queue (status, type, employee, search) / file a request |
+| `GET` | `/api/requests/:id` | detail, timeline, documents, payments, dispatches |
+| `PATCH` | `/api/requests/:id/status` | request a workflow move (a company may only withdraw) |
+| `GET` `POST` | `/api/requests/:id/documents` | list / attach a supporting file (`ATTACHMENT` only) |
+| `GET` | `/api/requests/:id/payments` | the ledger rows for one request |
+| `GET` | `/api/documents/:id` | metadata |
+| `GET` | `/api/documents/:id/download` | streams the bytes behind a tenant check |
+| `GET` | `/api/certificates` | the certificate register |
+| `GET` | `/api/payments` | the tenant ledger, with totals |
+| `GET` | `/api/dashboard/company/summary` | every dashboard figure, aggregated server-side |
+| `GET` | `/api/labs`, `/api/labs/:id` | selectable laboratories (any session; read-only) |
+
+**Medical Alliance staff console** — deliberately cross-company, behind the separate `AdminUser` identity
+
+| Method | Path | Role |
+|---|---|---|
+| `GET` | `/api/admin/companies` | `ADMIN`, `REVIEWER` |
+| `GET` | `/api/admin/requests` | `ADMIN`, `REVIEWER` |
+| `GET` | `/api/admin/requests/:id` | `ADMIN`, `REVIEWER` |
+| `PATCH` | `/api/admin/requests/:id/status` | `ADMIN`, `REVIEWER` |
+| `PATCH` | `/api/admin/requests/:id/lab` | `ADMIN`, `REVIEWER` |
+| `POST` | `/api/admin/requests/:id/documents` | `ADMIN`, `REVIEWER` — issues `RESULT` / `CERTIFICATE` |
+| `GET` | `/api/admin/labs` | `ADMIN`, `REVIEWER` |
+| `GET` | `/api/admin/dashboard/summary` | `ADMIN`, `REVIEWER` |
+| `POST` | `/api/admin/payments/:id/settle` | **`ADMIN` only** — a reviewer cannot mark money received |
 
 Errors always come back as `{ "error": { "code", "message" } }`. Stack traces
 and raw database errors are logged server-side and never sent to a client.
 
 ---
+
+## The request workflow
+
+A request moves through one state machine, implemented in
+`apps/api/src/services/requestWorkflow.ts` and applied by
+`services/requests.ts`:
+
+```
+SUBMITTED → PENDING_PAYMENT → APPROVED → AT_LAB → RESULTS_RECEIVED
+          → UNDER_REVIEW → COMPLETE
+```
+
+`REJECTED` is reachable from any non-terminal state. `COMPLETE` and `REJECTED`
+are terminal.
+
+**Clients never set a status.** `PATCH .../status` names a *target*; the service
+re-reads the current status inside its transaction and validates the move
+against both the state machine and an actor-permission matrix. An impossible
+move is `422`; a move this actor may not make is `403`. Every accepted change
+appends a `RequestStatusEvent` in the same transaction, so a status can never
+change without its audit row.
+
+Who may do what:
+
+- **Medical Alliance staff** drive the clinical pipeline — every forward move.
+- **Company users** may do exactly one thing to a request they filed: withdraw
+  it, and only while it is `SUBMITTED` or `PENDING_PAYMENT`.
+
+Side effects are preconditions, checked before anything is written: moving to
+`AT_LAB` requires an active laboratory (and queues a `LabNotification`), and a
+`PER_REQUEST` company cannot have a request approved out of `PENDING_PAYMENT`
+while its payment is outstanding.
+
+The API returns `availableTransitions` on every request-detail response — the
+same matrix the write endpoint enforces — so the buttons a screen offers and the
+permissions the server applies cannot drift apart.
+
+## Documents and storage
+
+Documents (`RESULT`, `CERTIFICATE`, `ATTACHMENT`) hang off a request and carry
+their own `companyId`, copied from the parent at write time, so a tenant check
+is a plain column predicate rather than a join that could be forgotten.
+
+- Uploads are multipart, capped at `MAX_UPLOAD_BYTES`, and validated against a
+  **content-type allow-list** (PDF, PNG, JPEG, WebP, plain text). SVG and every
+  active/executable type are refused.
+- The stored key is server-generated (`companyId/requestId/uuid.ext`). A client
+  filename never becomes a path, so a crafted name cannot escape the storage
+  root; it is sanitised separately for display.
+- Ownership and content are validated **before** any bytes are written, so a
+  rejected upload leaves nothing behind.
+- Bytes live behind `StorageAdapter` (`services/storage.ts`) and are streamed by
+  `GET /api/documents/:id/download` after a tenant check, with
+  `Content-Disposition: attachment`, `Cache-Control: private, no-store` and
+  `nosniff`. They are **never** written under `apps/web/public`.
+- A company may upload supporting `ATTACHMENT` files only. `RESULT` and
+  `CERTIFICATE` are issued by Medical Alliance through the admin route.
+
+**Development limitation:** the only adapter is `LocalDiskStorage`, writing to
+`apps/api/var/` (git-ignored). It is per-instance and not replicated — fine for
+development, not for production or for more than one API instance. Swapping in
+object storage means implementing the interface and changing one factory.
+
+## Billing
+
+**No payment provider is integrated.** Phase 2 models the money without moving
+any. A `Payment` row records what is owed, in which currency, under which
+arrangement, and whether it has been settled. Amounts are integer **minor
+units** (halalas), because integers are exact and serialise to JSON losslessly
+where Prisma's `Decimal` does not.
+
+- `PER_REQUEST` companies get a payable request: it enters the pipeline gated on
+  payment, and cannot be approved until the charge is settled.
+- `SETTLEMENT` companies are invoiced periodically: the request is not gated,
+  but a ledger row is still written for the settlement run.
+
+`POST /api/admin/payments/:id/settle` records a settlement that happened
+elsewhere (bank transfer, invoice run). It is `ADMIN`-only, so a company cannot
+mark its own invoice paid, and it does not pretend a gateway confirmed anything.
+A real provider's webhook would call the same service function.
+
+## Laboratories
+
+Laboratories are shared reference data, not tenant-owned. `GET /api/labs` is
+readable by any authenticated principal but returns only active labs; writes
+live under `/api/admin`, so a company account has no route to modify the shared
+list. Assigning one distinguishes its two failure modes: a lab that does not
+exist is `404`, while one that exists but has been deactivated is `400` naming
+it, so the user can pick another.
 
 ## Security model
 
@@ -227,8 +353,11 @@ A client cannot widen that scope: the create schema is `.strict()` and has no
 `companyId` field, so sending one is a `400` rather than being silently ignored;
 single-record reads use `findFirst({ where: { id, companyId } })` and answer
 `404` for another tenant's id, so the API never confirms that the id exists
-elsewhere. `apps/api/tests/tenant-isolation.test.ts` authenticates as one
-company and attempts each of these against another's data.
+elsewhere. The same rule covers every Phase 2 resource — employees, requests,
+documents (which carry their own `companyId`), payments and the dashboard
+aggregates. `apps/api/tests/tenant-isolation.test.ts` authenticates as one
+company and attempts each of these against another's data, including reading,
+editing, downloading and transitioning.
 
 Also in place:
 
@@ -261,25 +390,27 @@ Documented rather than silently in scope:
 
 - **No CSRF token.** Cookie auth with `SameSite=Lax` blocks cross-site form
   POSTs, but a token (or double-submit cookie) on state-changing routes is
-  Phase 4 in the action plan and should land before any public launch.
-- **No `/api/contact` endpoint.** The contact form still shows a local success
-  toast without sending anything, exactly as the prototype did. It does not
-  claim to have delivered a message it cannot deliver. Phase 2.
-- **No status-transition endpoint.** `services/requestWorkflow.ts` implements
-  and unit-tests the state machine, but `PATCH /api/requests/:id/status` is
-  Phase 2, so "Save and issue" on the worker screen is disabled rather than
-  faked.
-- **No clinical notes or document models.** The `Document`, `LabNotification`
-  and `Payment` models from the full schema are Phase 2; the worker screen's
-  notes panel says so instead of showing invented data.
-- **No CI pipeline yet** beyond the workflow in `.github/workflows/ci.yml`,
-  which runs lint, typecheck, build and the test suites. Deployment,
-  monitoring and backup verification are Phase 6.
-- **Layouts are only partly responsive.** The prototype's fixed grids were
-  converted to `auto-fit` tracks during migration, but a full responsive and
-  accessibility pass against real variable-length data is Phase 3.
-
----
+  Phase 4 and should land before any public launch.
+- **No payment provider.** Billing is modelled and settlements are recorded, but
+  nothing captures funds. See *Billing* above.
+- **No lab email delivery.** Moving a request to `AT_LAB` records a
+  `LabNotification` in `PENDING` — an honest "queued, not delivered". Wiring a
+  provider (and the inbound-parse webhook that fills in `inboundReceivedAt`) is
+  the remaining half of the Phase 2 lab integration.
+- **Local disk storage only.** See *Documents and storage* above.
+- **No `/api/contact` endpoint.** The public contact form still shows a local
+  success toast without sending anything, exactly as the prototype did.
+- **No clinical-notes model.** The worker screen shows the record and its
+  examination history; per-visit clinical notes are not modelled.
+- **No staff document-upload screen.** Results and certificates are issued
+  through `POST /api/admin/requests/:id/documents`; the admin UI shows what is
+  attached but does not upload.
+- **Layouts are only partly responsive.** The prototype's fixed grids became
+  `auto-fit` tracks, but a full responsive and accessibility pass against real
+  variable-length data is Phase 3.
+- **Lint warnings remain.** `npm run lint` reports non-blocking React-purity and
+  `set-state-in-effect` warnings (form-reset effects, relative-date maths) plus
+  the prototype's inherited raw px/hex literals. Phase 3 cleanup.
 
 ## Troubleshooting
 

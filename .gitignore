@@ -27,6 +27,10 @@ build/
 apps/api/src/generated/
 apps/api/prisma/*.db
 
+# Local document storage (the dev StorageAdapter). Clinical files must never be
+# committed, and must never live under apps/web/public.
+apps/api/var/
+
 # Test & tooling artefacts
 coverage/
 .vite/

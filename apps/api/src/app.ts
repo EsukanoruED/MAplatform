@@ -10,6 +10,11 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { authRouter } from './routes/auth';
 import { requestsRouter } from './routes/requests';
 import { employeesRouter } from './routes/employees';
+import { labsRouter } from './routes/labs';
+import { documentsRouter } from './routes/documents';
+import { certificatesRouter } from './routes/certificates';
+import { paymentsRouter } from './routes/payments';
+import { dashboardRouter } from './routes/dashboard';
 import { adminRouter } from './routes/admin';
 
 const PgSession = connectPgSimple(session);
@@ -76,6 +81,11 @@ export function createApp(): Express {
   app.use('/api/auth', authRouter);
   app.use('/api/requests', requestsRouter);
   app.use('/api/employees', employeesRouter);
+  app.use('/api/labs', labsRouter);
+  app.use('/api/documents', documentsRouter);
+  app.use('/api/certificates', certificatesRouter);
+  app.use('/api/payments', paymentsRouter);
+  app.use('/api/dashboard', dashboardRouter);
   app.use('/api/admin', adminRouter);
 
   app.use(notFoundHandler);

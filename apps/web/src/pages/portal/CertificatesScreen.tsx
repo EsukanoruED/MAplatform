@@ -1,78 +1,147 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Badge, Button, Card, DataTable, Icon, ProgressMeter, SelectField, Switch, Tag, TextField,
-} from '../../components';
+import { Badge, Button, Card, DataTable, Icon, ProgressMeter, SelectField, Tag, TextField } from '../../components';
 import { PortalBody, PortalTopBar } from '../../layouts/PortalLayout';
-import { useRequests } from '../../lib/queries/requests';
-import { ApiError } from '../../lib/api';
-import type { MedicalRequest, RequestStatus } from '../../lib/api';
-import { formatDate, requestReference, statusLabel, statusTone, typeLabel } from '../../lib/format';
+import { useCertificates } from '../../lib/queries/workflow';
+import { ApiError, api } from '../../lib/api';
+import type { MedicalRequest, RequestDocument, RequestStatus } from '../../lib/api';
+import {
+  EXPIRY_WARNING_DAYS,
+  expiryLabel,
+  expiryTone,
+  formatDate,
+  requestReference,
+  statusLabel,
+  statusTone,
+} from '../../lib/format';
 import { EmptyState, ErrorState, LoadingState } from './ui-states';
-import { NewRequestModal } from './NewRequestModal';
 
 /**
- * Migrated from ui_kits/portal/CertificatesScreen.jsx and connected to the API.
+ * The certificate register.
  *
- * The prototype's five hard-coded rows are replaced by GET /api/requests, which
- * the server scopes to the signed-in company. The filter panel, register table,
- * register-health meters and notification switches keep their original layout;
- * the filters now actually filter the real rows.
+ * Backed by GET /api/certificates, which returns two halves: the issued
+ * certificates (Document rows of type CERTIFICATE, tenant-scoped by their own
+ * companyId column) and the fitness-certificate requests still in the pipeline.
+ *
+ * Both halves are listed on purpose. A register showing only issued certificates
+ * would overstate coverage — an in-flight examination is exactly what a safety
+ * officer needs to see.
  */
+type RegisterRow = {
+  id: string;
+  requestId: string;
+  worker: string;
+  site: string | null;
+  createdAt: string;
+  status: RequestStatus;
+  certificate: RequestDocument | null;
+} & Record<string, unknown>;
 
-const STATUS_OPTIONS: Array<{ value: RequestStatus; label: string }> = [
-  'SUBMITTED', 'PENDING_PAYMENT', 'APPROVED', 'AT_LAB', 'RESULTS_RECEIVED', 'UNDER_REVIEW', 'COMPLETE', 'REJECTED',
-].map((s) => ({ value: s as RequestStatus, label: statusLabel(s as RequestStatus) }));
+const STATUS_FILTERS: Array<{ value: string; label: string }> = [
+  { value: 'issued', label: 'Issued' },
+  { value: 'expiring', label: 'Expiring soon' },
+  { value: 'expired', label: 'Expired' },
+  { value: 'pending', label: 'Not yet issued' },
+];
 
 export function CertificatesScreen() {
   const navigate = useNavigate();
-  const [alerts, setAlerts] = React.useState(true);
-  const [digest, setDigest] = React.useState(false);
   const [search, setSearch] = React.useState('');
   const [site, setSite] = React.useState('');
-  const [status, setStatus] = React.useState('');
-  const [creating, setCreating] = React.useState(false);
+  const [filter, setFilter] = React.useState('');
 
-  const { data, isPending, isError, error, refetch } = useRequests();
-  const requests = data?.requests ?? [];
-  const summary = data?.summary;
+  const { data, isPending, isError, error, refetch } = useCertificates();
+
+  /**
+   * One row per fitness-certificate request, with its issued certificate
+   * attached when there is one. Pairing here (rather than listing the two
+   * halves separately) means a request never appears twice, and a request that
+   * completed without a certificate on file is still visible.
+   */
+  const rows: RegisterRow[] = React.useMemo(() => {
+    const newestByRequest = new Map<string, RequestDocument>();
+    for (const certificate of data?.certificates ?? []) {
+      const existing = newestByRequest.get(certificate.requestId);
+      if (!existing || certificate.uploadedAt > existing.uploadedAt) {
+        newestByRequest.set(certificate.requestId, certificate);
+      }
+    }
+
+    return (data?.requests ?? []).map((request: MedicalRequest) => ({
+      id: request.id,
+      requestId: request.id,
+      worker: request.employee.fullName,
+      site: request.employee.site,
+      createdAt: request.createdAt,
+      status: request.status,
+      certificate: newestByRequest.get(request.id) ?? null,
+    }));
+  }, [data]);
 
   const sites = React.useMemo(
-    () => [...new Set(requests.map((r) => r.employee.site).filter((s): s is string => Boolean(s)))].sort(),
-    [requests],
+    () => [...new Set(rows.map((r) => r.site).filter((s): s is string => Boolean(s)))].sort(),
+    [rows],
   );
 
-  const rows = React.useMemo(() => {
+  /**
+   * Days until expiry, measured against a clock captured once per recomputation
+   * rather than read during render — reading Date.now() while rendering makes
+   * the derived buckets unstable across re-renders.
+   */
+  const daysUntil = (iso: string | null | undefined, now: number) =>
+    iso ? Math.round((new Date(iso).getTime() - now) / 86_400_000) : null;
+
+  const filtered = React.useMemo(() => {
+    const now = Date.now();
     const term = search.trim().toLowerCase();
-    return requests.filter((r) => {
-      if (site && r.employee.site !== site) return false;
-      if (status && r.status !== status) return false;
+    return rows.filter((row) => {
+      if (site && row.site !== site) return false;
+
+      if (filter) {
+        const days = daysUntil(row.certificate?.expiryDate, now);
+        if (filter === 'pending' && row.certificate) return false;
+        if (filter === 'issued' && !row.certificate) return false;
+        if (filter === 'expiring' && (days === null || days < 0 || days > EXPIRY_WARNING_DAYS)) return false;
+        if (filter === 'expired' && (days === null || days >= 0)) return false;
+      }
+
       if (!term) return true;
       return (
-        r.employee.fullName.toLowerCase().includes(term) ||
-        requestReference(r.id, r.createdAt).toLowerCase().includes(term) ||
-        (r.employee.site ?? '').toLowerCase().includes(term)
+        row.worker.toLowerCase().includes(term) ||
+        requestReference(row.requestId, row.createdAt).toLowerCase().includes(term) ||
+        (row.site ?? '').toLowerCase().includes(term)
       );
     });
-  }, [requests, search, site, status]);
+  }, [rows, search, site, filter]);
 
-  const activeFilters = [
-    site ? { key: 'site', label: site, clear: () => setSite('') } : null,
-    status ? { key: 'status', label: statusLabel(status as RequestStatus), clear: () => setStatus('') } : null,
-    search.trim() ? { key: 'search', label: `“${search.trim()}”`, clear: () => setSearch('') } : null,
-  ].filter((f): f is { key: string; label: string; clear: () => void } => f !== null);
+  const { issued, expiringSoon, expired } = React.useMemo(() => {
+    const now = Date.now();
+    return {
+      issued: rows.filter((r) => r.certificate).length,
+      expiringSoon: rows.filter((r) => {
+        const days = daysUntil(r.certificate?.expiryDate, now);
+        return days !== null && days >= 0 && days <= EXPIRY_WARNING_DAYS;
+      }).length,
+      expired: rows.filter((r) => {
+        const days = daysUntil(r.certificate?.expiryDate, now);
+        return days !== null && days < 0;
+      }).length,
+    };
+  }, [rows]);
 
-  const total = summary?.total ?? 0;
-  const complete = summary?.byStatus.COMPLETE ?? 0;
-  const inProgress = total - complete - (summary?.byStatus.REJECTED ?? 0);
-  const rejected = summary?.byStatus.REJECTED ?? 0;
+  const hasFilters = Boolean(search.trim() || site || filter);
+  const clearFilters = () => {
+    setSearch('');
+    setSite('');
+    setFilter('');
+  };
 
   return (
     <>
       <PortalTopBar
         title="Certificates"
         actions={
-          <Button size="sm" variant="secondary" iconStart={<Icon name="download" size={15} />}>
+          <Button size="sm" variant="secondary" iconStart={<Icon name="download" size={15} />} disabled>
             Export register
           </Button>
         }
@@ -84,20 +153,36 @@ export function CertificatesScreen() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-4)' }}>
                 <TextField
                   label="Search"
-                  placeholder="Certificate, worker ID or name"
+                  placeholder="Certificate, worker or site"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   iconStart={<Icon name="search" size={16} />}
                 />
-                <SelectField label="Site" placeholder="All sites" value={site} onChange={(e) => setSite(e.target.value)} options={sites} />
-                <SelectField label="Status" placeholder="All statuses" value={status} onChange={(e) => setStatus(e.target.value)} options={STATUS_OPTIONS} />
+                <SelectField
+                  label="Site"
+                  placeholder="All sites"
+                  value={site}
+                  onChange={(e) => setSite(e.target.value)}
+                  options={sites}
+                />
+                <SelectField
+                  label="Status"
+                  placeholder="All statuses"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  options={STATUS_FILTERS}
+                />
               </div>
-              {activeFilters.length > 0 && (
+              {hasFilters && (
                 <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-4)', alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ font: 'var(--type-caption)', color: 'var(--text-muted)' }}>Active filters</span>
-                  {activeFilters.map((f) => (
-                    <Tag key={f.key} onRemove={f.clear}>{f.label}</Tag>
-                  ))}
+                  {search.trim() && <Tag onRemove={() => setSearch('')}>{`“${search.trim()}”`}</Tag>}
+                  {site && <Tag onRemove={() => setSite('')}>{site}</Tag>}
+                  {filter && (
+                    <Tag onRemove={() => setFilter('')}>
+                      {STATUS_FILTERS.find((f) => f.value === filter)?.label ?? filter}
+                    </Tag>
+                  )}
                 </div>
               )}
             </Card>
@@ -109,40 +194,79 @@ export function CertificatesScreen() {
               />
             ) : isPending ? (
               <LoadingState label="Loading the certificate register…" />
-            ) : requests.length === 0 ? (
+            ) : rows.length === 0 ? (
               <EmptyState
                 title="No certificate requests yet"
-                body="Once you submit an examination request for a worker it appears in this register, along with its status and the certificate reference."
+                body="Once you request a fitness certificate for a worker it appears in this register, along with its status and the issued certificate when it is ready."
                 action={
-                  <Button size="sm" onClick={() => setCreating(true)} iconStart={<Icon name="plus" size={15} />}>
-                    New examination
+                  <Button size="sm" onClick={() => navigate('/portal/requests')} iconStart={<Icon name="plus" size={15} />}>
+                    Go to requests
                   </Button>
                 }
               />
-            ) : rows.length === 0 ? (
+            ) : filtered.length === 0 ? (
               <EmptyState
                 title="No records match these filters"
                 body="Clear or widen the filters above to see the rest of the register."
                 action={
-                  <Button size="sm" variant="secondary" onClick={() => { setSearch(''); setSite(''); setStatus(''); }}>
+                  <Button size="sm" variant="secondary" onClick={clearFilters}>
                     Clear filters
                   </Button>
                 }
               />
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <DataTable<MedicalRequest & Record<string, unknown>>
-                  caption={`Certificate register — ${total} record${total === 1 ? '' : 's'}, ${rows.length} shown`}
-                  onRowClick={(r) => navigate(`/portal/workers/${r.employeeId}`)}
+                <DataTable<RegisterRow>
+                  caption={`Certificate register — ${rows.length} record${rows.length === 1 ? '' : 's'}, ${filtered.length} shown`}
+                  onRowClick={(r) => navigate(`/portal/requests/${r.requestId}`)}
                   columns={[
-                    { key: 'ref', header: 'Reference', mono: true, width: '148px', render: (r) => requestReference(r.id, r.createdAt) },
-                    { key: 'name', header: 'Worker', render: (r) => r.employee.fullName },
-                    { key: 'site', header: 'Site', render: (r) => r.employee.site ?? '—' },
-                    { key: 'type', header: 'Type', render: (r) => typeLabel(r.type) },
-                    { key: 'createdAt', header: 'Submitted', align: 'end', numeric: true, render: (r) => formatDate(r.createdAt) },
-                    { key: 'status', header: 'Status', render: (r) => <Badge tone={statusTone(r.status)} dot>{statusLabel(r.status)}</Badge> },
+                    {
+                      key: 'ref',
+                      header: 'Reference',
+                      mono: true,
+                      width: '150px',
+                      render: (r) => requestReference(r.requestId, r.createdAt),
+                    },
+                    { key: 'worker', header: 'Worker', render: (r) => r.worker },
+                    { key: 'site', header: 'Site', render: (r) => r.site ?? '—' },
+                    {
+                      key: 'expires',
+                      header: 'Expires',
+                      align: 'end',
+                      numeric: true,
+                      render: (r) => (r.certificate?.expiryDate ? formatDate(r.certificate.expiryDate) : '—'),
+                    },
+                    {
+                      key: 'certificate',
+                      header: 'Certificate',
+                      render: (r) =>
+                        r.certificate ? (
+                          <Badge tone={expiryTone(r.certificate.expiryDate)} dot>
+                            {expiryLabel(r.certificate.expiryDate)}
+                          </Badge>
+                        ) : (
+                          <Badge tone={statusTone(r.status)} dot>
+                            {statusLabel(r.status)}
+                          </Badge>
+                        ),
+                    },
+                    {
+                      key: 'download',
+                      header: '',
+                      align: 'end',
+                      render: (r) =>
+                        r.certificate ? (
+                          <a
+                            href={api.documentDownloadUrl(r.certificate.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ font: 'var(--weight-semibold) var(--text-xs)/1 var(--font-body)' }}
+                          >
+                            Download
+                          </a>
+                        ) : null,
+                    },
                   ]}
-                  rows={rows as Array<MedicalRequest & Record<string, unknown>>}
+                  rows={filtered}
                 />
               </div>
             )}
@@ -151,22 +275,39 @@ export function CertificatesScreen() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
             <Card eyebrow="Register health" padding="var(--space-5)">
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-                <ProgressMeter label="Complete" valueLabel={`${complete} / ${total}`} value={complete} max={Math.max(total, 1)} tone="success" />
-                <ProgressMeter label="In progress" valueLabel={`${inProgress} / ${total}`} value={inProgress} max={Math.max(total, 1)} tone="warning" />
-                <ProgressMeter label="Rejected" valueLabel={`${rejected} / ${total}`} value={rejected} max={Math.max(total, 1)} tone="danger" />
+                <ProgressMeter
+                  label="Issued"
+                  valueLabel={`${issued} / ${rows.length}`}
+                  value={issued}
+                  max={Math.max(rows.length, 1)}
+                  tone="success"
+                />
+                <ProgressMeter
+                  label={`Expiring in ${EXPIRY_WARNING_DAYS} days`}
+                  valueLabel={`${expiringSoon} / ${rows.length}`}
+                  value={expiringSoon}
+                  max={Math.max(rows.length, 1)}
+                  tone="warning"
+                />
+                <ProgressMeter
+                  label="Expired"
+                  valueLabel={`${expired} / ${rows.length}`}
+                  value={expired}
+                  max={Math.max(rows.length, 1)}
+                  tone="danger"
+                />
               </div>
             </Card>
-            <Card eyebrow="Notifications" padding="var(--space-5)">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                <Switch label="Expiry alerts" description="Email site supervisors 30 days before a certificate lapses" checked={alerts} onChange={setAlerts} />
-                <Switch label="Weekly register digest" checked={digest} onChange={setDigest} />
-              </div>
+
+            <Card eyebrow="How certificates are issued" padding="var(--space-5)">
+              <p style={{ font: 'var(--type-body-sm)', color: 'var(--text-secondary)' }}>
+                A certificate is issued by Medical Alliance once the examination has been reviewed.
+                It then appears here against the request, with its expiry date.
+              </p>
             </Card>
           </div>
         </div>
       </PortalBody>
-
-      <NewRequestModal open={creating} onClose={() => setCreating(false)} />
     </>
   );
 }
